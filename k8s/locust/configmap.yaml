@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: locust-config
+  namespace: mlops
+data:
+  LOCUST_HOST: "http://api-service:8000"
+  LOCUST_LOCUSTFILE: "/app/locustfile.py"

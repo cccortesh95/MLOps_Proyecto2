@@ -1,0 +1,35 @@
+# Data
+data/
+*.csv
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+.docker/
+
+# Kubernetes secrets (local overrides)
+k8s/**/secret-local.yaml
+
+# Logs
+*.log
+logs/

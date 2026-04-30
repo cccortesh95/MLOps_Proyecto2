@@ -1,0 +1,92 @@
+# =============================================================================
+# Helm values para Airflow en Kubernetes local
+# Basado en: https://github.com/CristianDiazAlvarez/MLOPS_PUJ/tree/main/Niveles/3/Airflow
+# =============================================================================
+
+# Executor: LocalExecutor para ambiente local (no requiere Redis/Celery)
+executor: LocalExecutor
+
+# Variables de entorno globales para todos los componentes de Airflow
+env:
+  - name: AIRFLOW__CORE__LOAD_EXAMPLES
+    value: "False"
+  # Conexión a la base de datos del proyecto (PostgreSQL externo)
+  - name: AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION
+    value: "True"
+  # MLflow tracking URI
+  - name: MLFLOW_TRACKING_URI
+    value: "http://mlflow-service.mlops.svc.cluster.local:5000"
+  # MinIO / S3 endpoint para artefactos de MLflow
+  - name: MLFLOW_S3_ENDPOINT_URL
+    value: "http://minio-service.mlops.svc.cluster.local:9000"
+  - name: AWS_ACCESS_KEY_ID
+    value: "minioadmin"
+  - name: AWS_SECRET_ACCESS_KEY
+    value: "minioadmin123"
+  # Conexión a PostgreSQL de datos del proyecto
+  - name: DATA_DB_HOST
+    value: "postgres-service.mlops.svc.cluster.local"
+  - name: DATA_DB_PORT
+    value: "5432"
+  - name: DATA_DB_NAME
+    value: "mlops_db"
+  - name: DATA_DB_USER
+    value: "mlops_user"
+  - name: DATA_DB_PASSWORD
+    value: "mlops_password"
+
+# ---------------------------------------------------------------------------
+# Resources (requests y limits) para cada componente de Airflow
+# ---------------------------------------------------------------------------
+webserver:
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "500m"
+      memory: "1Gi"
+
+scheduler:
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "500m"
+      memory: "1Gi"
+
+workers:
+  replicas: 1
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "1"
+      memory: "2Gi"
+
+triggerer:
+  enabled: true
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "250m"
+      memory: "512Mi"
+
+# PostgreSQL interno de Airflow (metadatos de Airflow, NO datos del proyecto)
+postgresql:
+  enabled: true
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "250m"
+      memory: "512Mi"
+
+# Redis no es necesario con LocalExecutor
+redis:
+  enabled: false

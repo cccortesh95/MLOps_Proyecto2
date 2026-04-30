@@ -1,0 +1,8 @@
+# =============================================================================
+# Docker Compose - SOLO para desarrollo local
+# La entrega final debe desplegarse en Kubernetes.
+# =============================================================================
+
+# TODO: Implementar docker-compose para desarrollo local
+version: "3.8"
+services: {}

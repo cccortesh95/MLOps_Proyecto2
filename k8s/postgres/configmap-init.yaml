@@ -1,0 +1,99 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-scripts
+  namespace: mlops
+data:
+  01_create_databases.sql: |
+    -- Esquemas para separar capas de datos
+    CREATE SCHEMA IF NOT EXISTS raw;
+    CREATE SCHEMA IF NOT EXISTS clean;
+    CREATE SCHEMA IF NOT EXISTS inference;
+
+  02_create_raw_tables.sql: |
+    CREATE TABLE IF NOT EXISTS raw_data (
+      id SERIAL PRIMARY KEY,
+      batch_id INTEGER NOT NULL,
+      load_timestamp TIMESTAMP NOT NULL DEFAULT NOW(),
+      source_file VARCHAR(255),
+      row_hash VARCHAR(64),
+      status VARCHAR(20) DEFAULT 'loaded',
+      -- columnas del dataset diabetes
+      encounter_id BIGINT,
+      patient_nbr BIGINT,
+      race VARCHAR(50),
+      gender VARCHAR(20),
+      age VARCHAR(20),
+      weight VARCHAR(20),
+      admission_type_id INTEGER,
+      discharge_disposition_id INTEGER,
+      admission_source_id INTEGER,
+      time_in_hospital INTEGER,
+      payer_code VARCHAR(20),
+      medical_specialty VARCHAR(100),
+      num_lab_procedures INTEGER,
+      num_procedures INTEGER,
+      num_medications INTEGER,
+      number_outpatient INTEGER,
+      number_emergency INTEGER,
+      number_inpatient INTEGER,
+      diag_1 VARCHAR(20),
+      diag_2 VARCHAR(20),
+      diag_3 VARCHAR(20),
+      number_diagnoses INTEGER,
+      max_glu_serum VARCHAR(20),
+      A1Cresult VARCHAR(20),
+      metformin VARCHAR(20),
+      repaglinide VARCHAR(20),
+      nateglinide VARCHAR(20),
+      chlorpropamide VARCHAR(20),
+      glimepiride VARCHAR(20),
+      acetohexamide VARCHAR(20),
+      glipizide VARCHAR(20),
+      glyburide VARCHAR(20),
+      tolbutamide VARCHAR(20),
+      pioglitazone VARCHAR(20),
+      rosiglitazone VARCHAR(20),
+      acarbose VARCHAR(20),
+      miglitol VARCHAR(20),
+      troglitazone VARCHAR(20),
+      tolazamide VARCHAR(20),
+      examide VARCHAR(20),
+      citoglipton VARCHAR(20),
+      insulin VARCHAR(20),
+      glyburide_metformin VARCHAR(20),
+      glipizide_metformin VARCHAR(20),
+      glimepiride_pioglitazone VARCHAR(20),
+      metformin_rosiglitazone VARCHAR(20),
+      metformin_pioglitazone VARCHAR(20),
+      change VARCHAR(20),
+      diabetesMed VARCHAR(20),
+      readmitted VARCHAR(20)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_raw_batch ON raw_data(batch_id);
+    CREATE INDEX IF NOT EXISTS idx_raw_status ON raw_data(status);
+
+  03_create_clean_tables.sql: |
+    CREATE TABLE IF NOT EXISTS clean_data (
+      id SERIAL PRIMARY KEY,
+      processed_timestamp TIMESTAMP NOT NULL DEFAULT NOW()
+      -- columnas procesadas se crean dinámicamente desde el DAG
+    );
+
+  04_create_inference_tables.sql: |
+    CREATE TABLE IF NOT EXISTS inference_logs (
+      id SERIAL PRIMARY KEY,
+      request_id VARCHAR(64) NOT NULL,
+      inference_timestamp TIMESTAMP NOT NULL DEFAULT NOW(),
+      input_data JSONB NOT NULL,
+      prediction INTEGER,
+      probability FLOAT,
+      model_name VARCHAR(100),
+      model_version VARCHAR(50),
+      response_time_ms FLOAT,
+      status_code INTEGER DEFAULT 200
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_inference_ts ON inference_logs(inference_timestamp);
+    CREATE INDEX IF NOT EXISTS idx_inference_model ON inference_logs(model_name, model_version);

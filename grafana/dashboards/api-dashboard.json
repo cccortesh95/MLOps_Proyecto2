@@ -1,0 +1,15 @@
+{
+  "_comment": "TODO: Exportar dashboard funcional de Grafana con métricas de la API",
+  "dashboard": {
+    "title": "API Inferencia - MLOps",
+    "panels": [
+      "Total de solicitudes",
+      "Solicitudes por segundo",
+      "Latencia promedio",
+      "Latencia por percentiles (p50, p95, p99)",
+      "Número de errores",
+      "Tasa de error",
+      "CPU y memoria del pod (si disponible)"
+    ]
+  }
+}
