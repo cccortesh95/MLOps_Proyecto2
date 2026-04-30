@@ -59,14 +59,28 @@ DROP_COLS = [
 ]
 
 
-def _get_data_engine():
-    """Crea engine de SQLAlchemy hacia la BD de datos del proyecto."""
+def _get_engine(db_name):
+    """Crea engine de SQLAlchemy hacia una BD específica del proyecto."""
     host = os.getenv("DATA_DB_HOST", "postgres-service")
     port = os.getenv("DATA_DB_PORT", "5432")
-    db = os.getenv("DATA_DB_NAME", "mlops_db")
     user = os.getenv("DATA_DB_USER", "mlops_user")
-    pw = os.getenv("DATA_DB_PASSWORD", "mlops_password")
-    return create_engine(f"postgresql+psycopg2://{user}:{pw}@{host}:{port}/{db}")
+    pw = os.getenv("DATA_DB_PASSWORD", "mlops1234")
+    return create_engine(f"postgresql+psycopg2://{user}:{pw}@{host}:{port}/{db_name}")
+
+
+def _get_raw_engine():
+    """Engine hacia raw_data_db."""
+    return _get_engine(os.getenv("DATA_DB_NAME", "raw_data_db"))
+
+
+def _get_clean_engine():
+    """Engine hacia clean_data_db."""
+    return _get_engine(os.getenv("CLEAN_DB_NAME", "clean_data_db"))
+
+
+def _get_inference_engine():
+    """Engine hacia inference_db."""
+    return _get_engine(os.getenv("INFERENCE_DB_NAME", "inference_db"))
 
 
 # ---------------------------------------------------------------------------
@@ -100,7 +114,7 @@ def load_raw_batch(**kwargs):
     Carga incremental del CSV en lotes de max 15,000 registros.
     Usa batch_id y row_hash para control de duplicados.
     """
-    engine = _get_data_engine()
+    engine = _get_raw_engine()
     df_full = pd.read_csv(LOCAL_CSV_PATH, na_values="?")
     total_rows = len(df_full)
     logger.info(f"Total de registros en archivo fuente: {total_rows}")
@@ -108,13 +122,13 @@ def load_raw_batch(**kwargs):
     # Determinar siguiente batch_id
     with engine.connect() as conn:
         result = conn.execute(
-            text("SELECT COALESCE(MAX(batch_id), 0) FROM raw_data")
+            text("SELECT COALESCE(MAX(batch_id), 0) FROM raw.diabetes_raw")
         )
         last_batch = result.scalar()
 
     # Determinar registros ya cargados
     with engine.connect() as conn:
-        result = conn.execute(text("SELECT COUNT(*) FROM raw_data"))
+        result = conn.execute(text("SELECT COUNT(*) FROM raw.diabetes_raw"))
         loaded_count = result.scalar()
 
     if loaded_count >= total_rows:
@@ -140,7 +154,7 @@ def load_raw_batch(**kwargs):
     )
     batch_df["status"] = "loaded"
 
-    batch_df.to_sql("raw_data", engine, if_exists="append", index=False)
+    batch_df.to_sql("diabetes_raw", engine, schema="raw", if_exists="append", index=False)
     rows_loaded = len(batch_df)
     logger.info(
         f"Batch {batch_id}: cargados {rows_loaded} registros "
@@ -155,7 +169,7 @@ def load_raw_batch(**kwargs):
 # ---------------------------------------------------------------------------
 def validate_quality(**kwargs):
     """Ejecuta validaciones mínimas sobre los datos crudos recién cargados."""
-    engine = _get_data_engine()
+    engine = _get_raw_engine()
     ti = kwargs["ti"]
     batch_id = ti.xcom_pull(task_ids="load_raw_batch", key="batch_id")
 
@@ -165,12 +179,12 @@ def validate_quality(**kwargs):
 
     with engine.connect() as conn:
         result = conn.execute(
-            text("SELECT COUNT(*) FROM raw_data WHERE batch_id = :bid"),
+            text("SELECT COUNT(*) FROM raw.diabetes_raw WHERE batch_id = :bid"),
             {"bid": batch_id},
         )
         count = result.scalar()
 
-    logger.info(f"Batch {batch_id}: {count} registros en raw_data.")
+    logger.info(f"Batch {batch_id}: {count} registros en raw.diabetes_raw.")
 
     if count == 0:
         raise ValueError(f"Batch {batch_id} no tiene registros. Fallo de carga.")
@@ -184,7 +198,7 @@ def validate_quality(**kwargs):
         result = conn.execute(
             text(
                 "SELECT COUNT(*) - COUNT(DISTINCT row_hash) "
-                "FROM raw_data WHERE batch_id = :bid"
+                "FROM raw.diabetes_raw WHERE batch_id = :bid"
             ),
             {"bid": batch_id},
         )
@@ -206,11 +220,11 @@ def preprocess_data(**kwargs):
     """
     from sklearn.preprocessing import LabelEncoder
 
-    engine = _get_data_engine()
+    engine = _get_raw_engine()
 
     # Leer todos los datos crudos con status 'loaded'
     df = pd.read_sql(
-        "SELECT * FROM raw_data WHERE status = 'loaded'", engine
+        "SELECT * FROM raw.diabetes_raw WHERE status = 'loaded'", engine
     )
     logger.info(f"Registros crudos a procesar: {len(df)}")
 
@@ -281,19 +295,20 @@ def store_clean_data(**kwargs):
         logger.info("No hay datos limpios nuevos. Saltando.")
         return
 
-    engine = _get_data_engine()
+    engine = _get_clean_engine()
     df = pd.read_parquet("/tmp/clean_data.parquet")
 
     # Agregar metadatos de procesamiento
     df["processed_timestamp"] = datetime.utcnow()
 
-    df.to_sql("clean_data", engine, if_exists="replace", index=False)
-    logger.info(f"Almacenados {len(df)} registros en clean_data.")
+    df.to_sql("diabetes_clean", engine, schema="clean", if_exists="replace", index=False)
+    logger.info(f"Almacenados {len(df)} registros en clean.diabetes_clean.")
 
     # Marcar registros raw como procesados
-    with engine.begin() as conn:
+    raw_engine = _get_raw_engine()
+    with raw_engine.begin() as conn:
         conn.execute(
-            text("UPDATE raw_data SET status = 'processed' WHERE status = 'loaded'")
+            text("UPDATE raw.diabetes_raw SET status = 'processed' WHERE status = 'loaded'")
         )
     logger.info("Registros raw marcados como 'processed'.")
 

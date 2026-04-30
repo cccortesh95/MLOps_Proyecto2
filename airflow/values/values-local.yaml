@@ -29,11 +29,15 @@ env:
   - name: DATA_DB_PORT
     value: "5432"
   - name: DATA_DB_NAME
-    value: "mlops_db"
+    value: "raw_data_db"
+  - name: CLEAN_DB_NAME
+    value: "clean_data_db"
+  - name: INFERENCE_DB_NAME
+    value: "inference_db"
   - name: DATA_DB_USER
     value: "mlops_user"
   - name: DATA_DB_PASSWORD
-    value: "mlops_password"
+    value: "mlops1234"
 
 # ---------------------------------------------------------------------------
 # Resources (requests y limits) para cada componente de Airflow

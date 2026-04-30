@@ -9,4 +9,4 @@ data:
   MODEL_NAME: "diabetes-model"
   DB_HOST: "postgres-service"
   DB_PORT: "5432"
-  DB_NAME: "mlops_db"
+  DB_NAME: "inference_db"

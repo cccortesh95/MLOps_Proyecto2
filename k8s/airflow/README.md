@@ -26,7 +26,7 @@ kubectl create namespace $NAMESPACE
 
 # 3. Construir imagen custom con DAGs
 cd airflow
-export AIRFLOW_BASE_TAG=3.1.8
+export AIRFLOW_BASE_TAG=3.2.0
 docker build --pull \
   --build-arg AIRFLOW_BASE_TAG=$AIRFLOW_BASE_TAG \
   --tag airflow-local-dags:0.0.1 .

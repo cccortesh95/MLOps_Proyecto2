@@ -15,18 +15,18 @@ spec:
     spec:
       containers:
         - name: mlflow
-          image: ghcr.io/mlflow/mlflow:v2.15.1
-          command:
-            - mlflow
-            - server
+          image: cccortesh/mlops-mlflow:0.0.1
+          imagePullPolicy: Always
+          command: ["mlflow", "server"]
+          args:
             - --host
             - "0.0.0.0"
             - --port
             - "5000"
             - --backend-store-uri
-            - $(BACKEND_STORE_URI)
+            - "postgresql+psycopg2://mlflow_user:mlflow1234@mlflow-postgres-service:5432/mlflow_db"
             - --default-artifact-root
-            - $(MLFLOW_ARTIFACT_ROOT)
+            - "s3://mlflow-artifacts/"
           ports:
             - containerPort: 5000
           envFrom:
@@ -39,8 +39,8 @@ spec:
               cpu: "250m"
               memory: "512Mi"
             limits:
-              cpu: "500m"
-              memory: "1Gi"
+              cpu: "1"
+              memory: "2Gi"
           readinessProbe:
             httpGet:
               path: /health

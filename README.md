@@ -12,6 +12,9 @@
 - [Creación del clúster](#creación-del-clúster)
 - [Build y push de imágenes](#build-y-push-de-imágenes)
 - [Despliegue de la solución](#despliegue-de-la-solución)
+- [Despliegue de PostgreSQL](#despliegue-de-postgresql)
+- [Despliegue de MinIO](#despliegue-de-minio)
+- [Despliegue de MLflow](#despliegue-de-mlflow)
 - [Despliegue de Airflow](#despliegue-de-airflow)
 - [Actualización de DAGs](#actualización-de-dags)
 - [DAGs incluidos](#dags-incluidos)
@@ -115,6 +118,7 @@ Todas las imágenes custom del proyecto se publican en DockerHub. Los manifiesto
 | Imagen | Dockerfile | Descripción |
 |--------|------------|-------------|
 | `cccortesh/mlops-airflow:0.0.1` | `airflow/Dockerfile` | Airflow con DAGs y dependencias del proyecto |
+| `cccortesh/mlops-mlflow:0.0.1` | `mlflow/Dockerfile` | MLflow server con psycopg2 y boto3 |
 | `cccortesh/mlops-api:0.0.1` | `api/Dockerfile` | API de inferencia FastAPI |
 | `cccortesh/mlops-streamlit:0.0.1` | `streamlit/Dockerfile` | Interfaz gráfica Streamlit |
 | `cccortesh/mlops-locust:0.0.1` | `locust/Dockerfile` | Pruebas de carga Locust |
@@ -128,7 +132,7 @@ Todas las imágenes custom del proyecto se publican en DockerHub. Los manifiesto
 | Variable | Valor |
 |----------|-------|
 | `POSTGRES_USER` | `mlops_user` |
-| `POSTGRES_PASSWORD` | `mlops_password` |
+| `POSTGRES_PASSWORD` | `mlops1234` |
 | `POSTGRES_DB` | `mlops_db` |
 
 ### MinIO
@@ -154,9 +158,11 @@ Todas las imágenes custom del proyecto se publican en DockerHub. Los manifiesto
 |----------|-------|
 | `DATA_DB_HOST` | `postgres-service.mlops.svc.cluster.local` |
 | `DATA_DB_PORT` | `5432` |
-| `DATA_DB_NAME` | `mlops_db` |
+| `DATA_DB_NAME` | `raw_data_db` |
+| `CLEAN_DB_NAME` | `clean_data_db` |
+| `INFERENCE_DB_NAME` | `inference_db` |
 | `DATA_DB_USER` | `mlops_user` |
-| `DATA_DB_PASSWORD` | `mlops_password` |
+| `DATA_DB_PASSWORD` | `mlops1234` |
 
 ---
 
@@ -208,9 +214,18 @@ export TAG=0.0.1
 
 ```bash
 cd airflow
-docker build --pull --build-arg AIRFLOW_BASE_TAG=3.1.8 \
+docker build --pull --build-arg AIRFLOW_BASE_TAG=3.2.0 \
   -t $DOCKERHUB_USER/mlops-airflow:$TAG .
 docker push $DOCKERHUB_USER/mlops-airflow:$TAG
+cd ..
+```
+
+### MLflow
+
+```bash
+cd mlflow
+docker build -t $DOCKERHUB_USER/mlops-mlflow:$TAG .
+docker push $DOCKERHUB_USER/mlops-mlflow:$TAG
 cd ..
 ```
 
@@ -252,6 +267,7 @@ cd ..
 ```bash
 kubectl apply -f k8s/namespace/
 kubectl apply -f k8s/postgres/
+kubectl apply -f k8s/mlflow-postgres/
 kubectl apply -f k8s/minio/
 ```
 
@@ -263,11 +279,11 @@ kubectl apply -f k8s/mlflow/
 
 ### 3. Airflow
 
-Ver sección [Despliegue de Airflow](#despliegue-de-airflow). La imagen `cccortesh95/mlops-airflow` se jala directamente desde DockerHub.
+Ver sección [Despliegue de Airflow](#despliegue-de-airflow). La imagen `cccortesh/mlops-airflow` se jala directamente desde DockerHub.
 
 ### 4. Servicios de inferencia
 
-Las imágenes `cccortesh95/mlops-api` y `cccortesh95/mlops-streamlit` se jalan desde DockerHub.
+Las imágenes `cccortesh/mlops-api` y `cccortesh/mlops-streamlit` se jalan desde DockerHub.
 
 ```bash
 kubectl apply -f k8s/api/
@@ -276,13 +292,208 @@ kubectl apply -f k8s/streamlit/
 
 ### 5. Observabilidad y pruebas de carga
 
-La imagen `cccortesh95/mlops-locust` se jala desde DockerHub. Prometheus y Grafana usan imágenes oficiales.
+La imagen `cccortesh/mlops-locust` se jala desde DockerHub. Prometheus y Grafana usan imágenes oficiales.
 
 ```bash
 kubectl apply -f k8s/prometheus/
 kubectl apply -f k8s/grafana/
 kubectl apply -f k8s/locust/
 ```
+
+---
+
+## Despliegue de PostgreSQL
+
+Se despliegan dos instancias de PostgreSQL en Kubernetes: una para los datos del proyecto (raw, clean, inference) y otra dedicada a la metadata de MLflow. Airflow cuenta con su propia instancia interna gestionada por Helm.
+
+### Bases de datos
+
+El proyecto usa 2 instancias de PostgreSQL en el namespace `mlops`, más la instancia interna de Airflow:
+
+| Instancia | Base de datos | Esquema | Tabla | Propósito |
+|---|---|---|---|---|
+| `postgres` | `raw_data_db` | `raw` | `diabetes_raw` | Datos crudos sin transformar |
+| `postgres` | `clean_data_db` | `clean` | `diabetes_clean` | Datos procesados para entrenamiento |
+| `postgres` | `inference_db` | `inference` | `inference_logs` | Registros de inferencia de la API |
+| `mlflow-postgres` | `mlflow_db` | `public` | — | Metadata de MLflow (backend store) |
+| `airflow-postgresql` | `postgres` | `public` | — | Metadata de Airflow (viene con Helm) |
+
+La separación de MLflow en su propia instancia permite que las cargas de datos del DAG no afecten el rendimiento del tracking server, y que cada componente tenga su propio ciclo de vida de backups y mantenimiento.
+
+### Manifiestos aplicados
+
+**postgres (datos del proyecto)**
+
+| Archivo | Recurso | Descripción |
+|---------|---------|-------------|
+| `secret.yaml` | Secret | Credenciales: usuario, contraseña, BD por defecto |
+| `configmap.yaml` | ConfigMap | Host y puerto de conexión |
+| `configmap-init.yaml` | ConfigMap | Script shell que crea las 3 BDs, esquemas y tablas |
+| `pvc.yaml` | PersistentVolumeClaim | 5Gi de almacenamiento persistente |
+| `statefulset.yaml` | StatefulSet | PostgreSQL 16 con resources, probes y volúmenes |
+| `service.yaml` | Service (ClusterIP) | Exposición interna en puerto 5432 |
+
+**mlflow-postgres (metadata de MLflow)**
+
+| Archivo | Recurso | Descripción |
+|---------|---------|-------------|
+| `secret.yaml` | Secret | Credenciales de MLflow |
+| `configmap.yaml` | ConfigMap | Host y puerto |
+| `pvc.yaml` | PersistentVolumeClaim | 2Gi de almacenamiento |
+| `statefulset.yaml` | StatefulSet | PostgreSQL 16 con resources y probes |
+| `service.yaml` | Service (ClusterIP) | Exposición interna en puerto 5432 |
+
+### Despliegue
+
+```bash
+kubectl apply -f k8s/namespace/
+kubectl apply -f k8s/postgres/
+kubectl apply -f k8s/mlflow-postgres/
+```
+
+Verificar que el pod esté corriendo:
+
+```bash
+kubectl get pods -n mlops
+```
+
+Verificar que las bases de datos se crearon:
+
+```bash
+kubectl exec -it postgres-0 -n mlops -- psql -U mlops_user -d mlops_db -c "\l"
+```
+
+Verificar tablas en cada BD:
+
+```bash
+kubectl exec -it postgres-0 -n mlops -- psql -U mlops_user -d raw_data_db -c "\dt raw.*"
+kubectl exec -it postgres-0 -n mlops -- psql -U mlops_user -d clean_data_db -c "\dt clean.*"
+kubectl exec -it postgres-0 -n mlops -- psql -U mlops_user -d inference_db -c "\dt inference.*"
+```
+
+### Conexión local
+
+Exponer el servicio con port-forward:
+
+```bash
+# Datos del proyecto
+kubectl port-forward svc/postgres-service 5432:5432 -n mlops
+
+# Metadata de MLflow
+kubectl port-forward svc/mlflow-postgres-service 5433:5432 -n mlops
+```
+
+Datos de conexión (postgres de datos):
+
+| Campo | Valor |
+|-------|-------|
+| Host | `localhost` |
+| Port | `5432` |
+| User | `mlops_user` |
+| Password | `mlops1234` |
+| Database | `raw_data_db` / `clean_data_db` / `inference_db` |
+
+Datos de conexión (postgres de MLflow):
+
+| Campo | Valor |
+|-------|-------|
+| Host | `localhost` |
+| Port | `5433` |
+| User | `mlflow_user` |
+| Password | `mlflow1234` |
+| Database | `mlflow_db` |
+
+---
+
+## Despliegue de MinIO
+
+MinIO se despliega como artifact store para MLflow. Almacena los modelos serializados, métricas y artefactos generados durante la experimentación.
+
+### Manifiestos aplicados
+
+| Archivo | Recurso | Descripción |
+|---------|---------|-------------|
+| `secret.yaml` | Secret | Credenciales root de MinIO |
+| `configmap.yaml` | ConfigMap | Endpoint y puerto de consola |
+| `pvc.yaml` | PersistentVolumeClaim | 10Gi de almacenamiento |
+| `statefulset.yaml` | StatefulSet | MinIO con resources, probes y volumen |
+| `service.yaml` | Service (ClusterIP) | API en puerto 9000, consola en 9001 |
+| `job-create-bucket.yaml` | Job | Crea el bucket `mlflow-artifacts` automáticamente |
+
+### Despliegue
+
+```bash
+kubectl apply -f k8s/minio/
+```
+
+Verificar:
+
+```bash
+kubectl get pods -n mlops
+kubectl get jobs -n mlops
+kubectl logs job/minio-create-bucket -n mlops
+```
+
+### Acceso a la consola web
+
+```bash
+kubectl port-forward svc/minio-service 9001:9001 -n mlops
+```
+
+Abrir: http://localhost:9001
+
+| Campo | Valor |
+|-------|-------|
+| User | `minioadmin` |
+| Password | `minioadmin123` |
+
+---
+
+## Despliegue de MLflow
+
+MLflow se despliega como tracking server y model registry. Usa PostgreSQL dedicado como backend store y MinIO como artifact store.
+
+Se usa una imagen custom (`cccortesh/mlops-mlflow`) porque la imagen oficial de MLflow no incluye los drivers de conexión a PostgreSQL (`psycopg2`) ni a MinIO/S3 (`boto3`). Sin estas dependencias, MLflow no puede guardar experimentos en la base de datos ni almacenar artefactos en MinIO.
+
+### Manifiestos aplicados
+
+| Archivo | Recurso | Descripción |
+|---------|---------|-------------|
+| `secret.yaml` | Secret | Credenciales S3 (MinIO) y URI de conexión a PostgreSQL |
+| `configmap.yaml` | ConfigMap | Tracking URI, endpoint S3, artifact root |
+| `deployment.yaml` | Deployment | MLflow server con resources y probes |
+| `service.yaml` | Service (ClusterIP) | Exposición interna en puerto 5000 |
+
+### Despliegue
+
+Primero construir y publicar la imagen:
+
+```bash
+cd mlflow
+docker build -t cccortesh/mlops-mlflow:0.0.1 .
+docker push cccortesh/mlops-mlflow:0.0.1
+cd ..
+```
+
+Aplicar manifiestos (requiere que `mlflow-postgres` y `minio` estén corriendo):
+
+```bash
+kubectl apply -f k8s/mlflow/
+```
+
+Verificar:
+
+```bash
+kubectl get pods -n mlops
+```
+
+### Acceso a la UI
+
+```bash
+kubectl port-forward svc/mlflow-service 5000:5000 -n mlops
+```
+
+Abrir: http://localhost:5000
 
 ---
 
@@ -344,7 +555,7 @@ Abrir: http://localhost:8080
    ```bash
    cd airflow
    export TAG=0.0.2
-   docker build --pull --build-arg AIRFLOW_BASE_TAG=3.1.8 \
+   docker build --pull --build-arg AIRFLOW_BASE_TAG=3.2.0 \
      -t cccortesh/mlops-airflow:$TAG .
    docker push cccortesh/mlops-airflow:$TAG
    ```
@@ -408,6 +619,7 @@ kubectl delete -f k8s/locust/
 kubectl delete -f k8s/streamlit/
 kubectl delete -f k8s/api/
 kubectl delete -f k8s/mlflow/
+kubectl delete -f k8s/mlflow-postgres/
 kubectl delete -f k8s/minio/
 kubectl delete -f k8s/postgres/
 kubectl delete -f k8s/namespace/

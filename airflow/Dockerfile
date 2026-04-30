@@ -1,4 +1,4 @@
-ARG AIRFLOW_BASE_TAG=3.1.8
+ARG AIRFLOW_BASE_TAG=3.2.0
 FROM apache/airflow:${AIRFLOW_BASE_TAG}
 
 COPY requirements.txt /requirements.txt
