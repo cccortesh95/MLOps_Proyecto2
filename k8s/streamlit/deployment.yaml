@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: streamlit
-          image: cccortesh/mlops-streamlit:0.0.1
+          image: cccortesh/mlops-streamlit:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8501

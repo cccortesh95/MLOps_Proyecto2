@@ -15,17 +15,17 @@ env:
     value: "True"
   # MLflow tracking URI
   - name: MLFLOW_TRACKING_URI
-    value: "http://mlflow-service.mlops.svc.cluster.local:5000"
+    value: "http://mlflow-service:5000"
   # MinIO / S3 endpoint para artefactos de MLflow
   - name: MLFLOW_S3_ENDPOINT_URL
-    value: "http://minio-service.mlops.svc.cluster.local:9000"
+    value: "http://minio-service:9000"
   - name: AWS_ACCESS_KEY_ID
     value: "minioadmin"
   - name: AWS_SECRET_ACCESS_KEY
     value: "minioadmin123"
   # Conexión a PostgreSQL de datos del proyecto
   - name: DATA_DB_HOST
-    value: "postgres-service.mlops.svc.cluster.local"
+    value: "postgres-service"
   - name: DATA_DB_PORT
     value: "5432"
   - name: DATA_DB_NAME
@@ -94,3 +94,27 @@ postgresql:
 # Redis no es necesario con LocalExecutor
 redis:
   enabled: false
+
+# ---------------------------------------------------------------------------
+# Migración automática de base de datos al instalar/actualizar
+# ---------------------------------------------------------------------------
+migrateDatabaseJob:
+  enabled: true
+
+# ---------------------------------------------------------------------------
+# Crear usuario admin automáticamente
+# ---------------------------------------------------------------------------
+createUserJob:
+  enabled: true
+
+webserverSecretKey: mlops-airflow-secret-key
+
+# Credenciales del usuario admin por defecto
+defaultUser:
+  enabled: true
+  username: admin
+  password: admin
+  firstname: Admin
+  lastname: User
+  email: admin@example.com
+  role: Admin

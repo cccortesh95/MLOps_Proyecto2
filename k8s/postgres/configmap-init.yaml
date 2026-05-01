@@ -14,101 +14,33 @@ data:
       CREATE DATABASE clean_data_db;
       CREATE DATABASE inference_db;
 
-      -- Dar permisos al usuario sobre las 3 BDs
       GRANT ALL PRIVILEGES ON DATABASE raw_data_db TO $POSTGRES_USER;
       GRANT ALL PRIVILEGES ON DATABASE clean_data_db TO $POSTGRES_USER;
       GRANT ALL PRIVILEGES ON DATABASE inference_db TO $POSTGRES_USER;
     EOSQL
 
     # ---------------------------------------------------------------
-    # raw_data_db: datos crudos sin transformaciones
+    # raw_data_db: solo crear esquema, la tabla la crea el DAG
     # ---------------------------------------------------------------
     psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "raw_data_db" <<-EOSQL
       CREATE SCHEMA IF NOT EXISTS raw;
-
-      CREATE TABLE IF NOT EXISTS raw.diabetes_raw (
-        id SERIAL PRIMARY KEY,
-        batch_id INTEGER NOT NULL,
-        load_timestamp TIMESTAMP NOT NULL DEFAULT NOW(),
-        source_file VARCHAR(255),
-        row_hash VARCHAR(64),
-        status VARCHAR(20) DEFAULT 'loaded',
-        encounter_id BIGINT,
-        patient_nbr BIGINT,
-        race VARCHAR(50),
-        gender VARCHAR(20),
-        age VARCHAR(20),
-        weight VARCHAR(20),
-        admission_type_id INTEGER,
-        discharge_disposition_id INTEGER,
-        admission_source_id INTEGER,
-        time_in_hospital INTEGER,
-        payer_code VARCHAR(20),
-        medical_specialty VARCHAR(100),
-        num_lab_procedures INTEGER,
-        num_procedures INTEGER,
-        num_medications INTEGER,
-        number_outpatient INTEGER,
-        number_emergency INTEGER,
-        number_inpatient INTEGER,
-        diag_1 VARCHAR(20),
-        diag_2 VARCHAR(20),
-        diag_3 VARCHAR(20),
-        number_diagnoses INTEGER,
-        max_glu_serum VARCHAR(20),
-        A1Cresult VARCHAR(20),
-        metformin VARCHAR(20),
-        repaglinide VARCHAR(20),
-        nateglinide VARCHAR(20),
-        chlorpropamide VARCHAR(20),
-        glimepiride VARCHAR(20),
-        acetohexamide VARCHAR(20),
-        glipizide VARCHAR(20),
-        glyburide VARCHAR(20),
-        tolbutamide VARCHAR(20),
-        pioglitazone VARCHAR(20),
-        rosiglitazone VARCHAR(20),
-        acarbose VARCHAR(20),
-        miglitol VARCHAR(20),
-        troglitazone VARCHAR(20),
-        tolazamide VARCHAR(20),
-        examide VARCHAR(20),
-        citoglipton VARCHAR(20),
-        insulin VARCHAR(20),
-        glyburide_metformin VARCHAR(20),
-        glipizide_metformin VARCHAR(20),
-        glimepiride_pioglitazone VARCHAR(20),
-        metformin_rosiglitazone VARCHAR(20),
-        metformin_pioglitazone VARCHAR(20),
-        change VARCHAR(20),
-        diabetesMed VARCHAR(20),
-        readmitted VARCHAR(20)
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_raw_batch ON raw.diabetes_raw(batch_id);
-      CREATE INDEX IF NOT EXISTS idx_raw_status ON raw.diabetes_raw(status);
-      CREATE INDEX IF NOT EXISTS idx_raw_hash ON raw.diabetes_raw(row_hash);
+      GRANT ALL ON SCHEMA raw TO $POSTGRES_USER;
     EOSQL
 
     # ---------------------------------------------------------------
-    # clean_data_db: datos procesados listos para entrenamiento
+    # clean_data_db: solo crear esquema, la tabla la crea el DAG
     # ---------------------------------------------------------------
     psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "clean_data_db" <<-EOSQL
       CREATE SCHEMA IF NOT EXISTS clean;
-
-      -- Tabla base, las columnas procesadas se generan desde el DAG
-      CREATE TABLE IF NOT EXISTS clean.diabetes_clean (
-        id SERIAL PRIMARY KEY,
-        processed_timestamp TIMESTAMP NOT NULL DEFAULT NOW(),
-        batch_id INTEGER
-      );
+      GRANT ALL ON SCHEMA clean TO $POSTGRES_USER;
     EOSQL
 
     # ---------------------------------------------------------------
-    # inference_db: registros de inferencia de la API
+    # inference_db: crear esquema y tabla (estructura fija)
     # ---------------------------------------------------------------
     psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "inference_db" <<-EOSQL
       CREATE SCHEMA IF NOT EXISTS inference;
+      GRANT ALL ON SCHEMA inference TO $POSTGRES_USER;
 
       CREATE TABLE IF NOT EXISTS inference.inference_logs (
         id SERIAL PRIMARY KEY,

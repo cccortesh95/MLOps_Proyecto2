@@ -15,18 +15,18 @@ spec:
     spec:
       containers:
         - name: mlflow
-          image: cccortesh/mlops-mlflow:0.0.1
+          image: cccortesh/mlops-mlflow:latest
           imagePullPolicy: Always
-          command: ["mlflow", "server"]
-          args:
-            - --host
-            - "0.0.0.0"
-            - --port
-            - "5000"
-            - --backend-store-uri
-            - "postgresql+psycopg2://mlflow_user:mlflow1234@mlflow-postgres-service:5432/mlflow_db"
-            - --default-artifact-root
-            - "s3://mlflow-artifacts/"
+          command:
+            - /bin/sh
+            - -c
+            - |
+              mlflow server \
+                --host 0.0.0.0 \
+                --port 5000 \
+                --backend-store-uri "postgresql+psycopg2://mlflow_user:mlflow1234@mlflow-postgres-service:5432/mlflow_db" \
+                --default-artifact-root "s3://mlflow-artifacts/" \
+                --allowed-hosts "*"
           ports:
             - containerPort: 5000
           envFrom:

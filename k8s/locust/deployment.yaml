@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: locust
-          image: cccortesh/mlops-locust:0.0.1
+          image: cccortesh/mlops-locust:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8089

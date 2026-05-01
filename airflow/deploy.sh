@@ -7,11 +7,11 @@
 set -e
 
 # --- Configuración ---
-NAMESPACE="${NAMESPACE:-airflow-local}"
+NAMESPACE="${NAMESPACE:-mlops}"
 RELEASE_NAME="${RELEASE_NAME:-airflow}"
 AIRFLOW_BASE_TAG="${AIRFLOW_BASE_TAG:-3.1.8}"
 DOCKERHUB_USER="${DOCKERHUB_USER:-cccortesh}"
-IMAGE_TAG="${IMAGE_TAG:-0.0.1}"
+IMAGE_TAG="${IMAGE_TAG:-latest}"
 IMAGE_NAME="$DOCKERHUB_USER/mlops-airflow"
 
 echo "============================================="

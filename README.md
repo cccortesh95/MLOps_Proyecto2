@@ -17,7 +17,7 @@
 - [Despliegue de MLflow](#despliegue-de-mlflow)
 - [Despliegue de Airflow](#despliegue-de-airflow)
 - [Actualización de DAGs](#actualización-de-dags)
-- [DAGs incluidos](#dags-incluidos)
+- [Implementación de los DAGs](#implementación-de-los-dags)
 - [Troubleshooting](#troubleshooting)
 - [Limpieza](#limpieza)
 - [Colaboradores](#-colaboradores)
@@ -45,7 +45,8 @@ La solución está compuesta por los siguientes servicios:
 
 | Servicio | Propósito | Puerto |
 |----------|-----------|--------|
-| `postgres` | Base de datos (raw, clean, inference logs, metadata MLflow) | `5432` |
+| `postgres` | Base de datos del proyecto (raw, clean, inference logs) | `5432` |
+| `mlflow-postgres` | Base de datos de metadata de MLflow | `5432` |
 | `minio` | Artifact store para MLflow | `9000` |
 | `minio console` | Consola web de MinIO | `9001` |
 | `mlflow` | Tracking server y model registry | `5000` |
@@ -91,9 +92,12 @@ mlops-proyecto2/
 │   ├── locustfile.py
 │   ├── Dockerfile
 │   └── requirements.txt
+├── mlflow/
+│   └── Dockerfile
 ├── k8s/
 │   ├── namespace/
 │   ├── postgres/
+│   ├── mlflow-postgres/
 │   ├── minio/
 │   ├── mlflow/
 │   ├── api/
@@ -117,11 +121,11 @@ Todas las imágenes custom del proyecto se publican en DockerHub. Los manifiesto
 
 | Imagen | Dockerfile | Descripción |
 |--------|------------|-------------|
-| `cccortesh/mlops-airflow:0.0.1` | `airflow/Dockerfile` | Airflow con DAGs y dependencias del proyecto |
-| `cccortesh/mlops-mlflow:0.0.1` | `mlflow/Dockerfile` | MLflow server con psycopg2 y boto3 |
-| `cccortesh/mlops-api:0.0.1` | `api/Dockerfile` | API de inferencia FastAPI |
-| `cccortesh/mlops-streamlit:0.0.1` | `streamlit/Dockerfile` | Interfaz gráfica Streamlit |
-| `cccortesh/mlops-locust:0.0.1` | `locust/Dockerfile` | Pruebas de carga Locust |
+| `cccortesh/mlops-airflow:latest` | `airflow/Dockerfile` | Airflow con DAGs y dependencias del proyecto |
+| `cccortesh/mlops-mlflow:latest` | `mlflow/Dockerfile` | MLflow server con psycopg2 y boto3 |
+| `cccortesh/mlops-api:latest` | `api/Dockerfile` | API de inferencia FastAPI |
+| `cccortesh/mlops-streamlit:latest` | `streamlit/Dockerfile` | Interfaz gráfica Streamlit |
+| `cccortesh/mlops-locust:latest` | `locust/Dockerfile` | Pruebas de carga Locust |
 
 ---
 
@@ -156,7 +160,7 @@ Todas las imágenes custom del proyecto se publican en DockerHub. Los manifiesto
 
 | Variable | Valor |
 |----------|-------|
-| `DATA_DB_HOST` | `postgres-service.mlops.svc.cluster.local` |
+| `DATA_DB_HOST` | `postgres-service` |
 | `DATA_DB_PORT` | `5432` |
 | `DATA_DB_NAME` | `raw_data_db` |
 | `CLEAN_DB_NAME` | `clean_data_db` |
@@ -207,7 +211,6 @@ Todas las imágenes custom se construyen y publican en DockerHub antes de desple
 
 ```bash
 export DOCKERHUB_USER=cccortesh
-export TAG=0.0.1
 ```
 
 ### Airflow
@@ -215,8 +218,8 @@ export TAG=0.0.1
 ```bash
 cd airflow
 docker build --pull --build-arg AIRFLOW_BASE_TAG=3.2.0 \
-  -t $DOCKERHUB_USER/mlops-airflow:$TAG .
-docker push $DOCKERHUB_USER/mlops-airflow:$TAG
+  -t $DOCKERHUB_USER/mlops-airflow:latest .
+docker push $DOCKERHUB_USER/mlops-airflow:latest
 cd ..
 ```
 
@@ -224,8 +227,8 @@ cd ..
 
 ```bash
 cd mlflow
-docker build -t $DOCKERHUB_USER/mlops-mlflow:$TAG .
-docker push $DOCKERHUB_USER/mlops-mlflow:$TAG
+docker build -t $DOCKERHUB_USER/mlops-mlflow:latest .
+docker push $DOCKERHUB_USER/mlops-mlflow:latest
 cd ..
 ```
 
@@ -233,8 +236,8 @@ cd ..
 
 ```bash
 cd api
-docker build -t $DOCKERHUB_USER/mlops-api:$TAG .
-docker push $DOCKERHUB_USER/mlops-api:$TAG
+docker build -t $DOCKERHUB_USER/mlops-api:latest .
+docker push $DOCKERHUB_USER/mlops-api:latest
 cd ..
 ```
 
@@ -242,8 +245,8 @@ cd ..
 
 ```bash
 cd streamlit
-docker build -t $DOCKERHUB_USER/mlops-streamlit:$TAG .
-docker push $DOCKERHUB_USER/mlops-streamlit:$TAG
+docker build -t $DOCKERHUB_USER/mlops-streamlit:latest .
+docker push $DOCKERHUB_USER/mlops-streamlit:latest
 cd ..
 ```
 
@@ -251,8 +254,8 @@ cd ..
 
 ```bash
 cd locust
-docker build -t $DOCKERHUB_USER/mlops-locust:$TAG .
-docker push $DOCKERHUB_USER/mlops-locust:$TAG
+docker build -t $DOCKERHUB_USER/mlops-locust:latest .
+docker push $DOCKERHUB_USER/mlops-locust:latest
 cd ..
 ```
 
@@ -316,7 +319,7 @@ El proyecto usa 2 instancias de PostgreSQL en el namespace `mlops`, más la inst
 | `postgres` | `clean_data_db` | `clean` | `diabetes_clean` | Datos procesados para entrenamiento |
 | `postgres` | `inference_db` | `inference` | `inference_logs` | Registros de inferencia de la API |
 | `mlflow-postgres` | `mlflow_db` | `public` | — | Metadata de MLflow (backend store) |
-| `airflow-postgresql` | `postgres` | `public` | — | Metadata de Airflow (viene con Helm) |
+| `airflow-postgresql` | `postgres` | `public` | — | Metadata de Airflow (viene con Helm, mismo namespace) |
 
 La separación de MLflow en su propia instancia permite que las cargas de datos del DAG no afecten el rendimiento del tracking server, y que cada componente tenga su propio ciclo de vida de backups y mantenimiento.
 
@@ -470,8 +473,8 @@ Primero construir y publicar la imagen:
 
 ```bash
 cd mlflow
-docker build -t cccortesh/mlops-mlflow:0.0.1 .
-docker push cccortesh/mlops-mlflow:0.0.1
+docker build -t cccortesh/mlops-mlflow:latest .
+docker push cccortesh/mlops-mlflow:latest
 cd ..
 ```
 
@@ -511,7 +514,7 @@ helm repo update
 ### Paso 2: Crear namespace
 
 ```bash
-export NAMESPACE=airflow-local
+export NAMESPACE=mlops
 export RELEASE_NAME=airflow
 kubectl create namespace $NAMESPACE
 ```
@@ -525,19 +528,48 @@ cd airflow
 helm upgrade --install $RELEASE_NAME apache-airflow/airflow \
   --namespace $NAMESPACE \
   --set images.airflow.repository=cccortesh/mlops-airflow \
-  --set images.airflow.tag=0.0.1 \
+  --set images.airflow.tag=latest \
+  --set images.airflow.pullPolicy=Always \
   -f values/values-local.yaml \
   --wait --timeout 20m
 ```
 
-### Paso 4: Verificar
+### Paso 4: Ejecutar migración de base de datos
+
+La primera vez que se instala, los pods quedan en `Init:CrashLoopBackOff` esperando las migraciones. Ejecutar manualmente:
+
+```bash
+kubectl run airflow-migrate --rm -it \
+  --namespace mlops \
+  --image apache/airflow:3.2.0 \
+  --restart=Never \
+  --env="AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://postgres:postgres@airflow-postgresql:5432/postgres" \
+  -- airflow db migrate
+```
+
+Esperar a que los pods pasen a `Running`.
+
+### Paso 5: Crear usuario admin
+
+```bash
+kubectl exec -it deployment/airflow-api-server -n mlops -- \
+  airflow users create \
+  --username admin \
+  --password admin \
+  --firstname Admin \
+  --lastname User \
+  --role Admin \
+  --email admin@example.com
+```
+
+### Paso 6: Verificar
 
 ```bash
 kubectl get pods -n $NAMESPACE
 helm list -n $NAMESPACE
 ```
 
-### Paso 5: Exponer UI
+### Paso 7: Exponer UI
 
 ```bash
 kubectl port-forward svc/$RELEASE_NAME-api-server 8080:8080 -n $NAMESPACE
@@ -551,46 +583,115 @@ Abrir: http://localhost:8080
 
 1. Editar archivos en `airflow/dags/`
 2. Actualizar `airflow/requirements.txt` si hay nuevas librerías
-3. Reconstruir y publicar con nuevo tag:
+3. Reconstruir y publicar:
    ```bash
    cd airflow
-   export TAG=0.0.2
    docker build --pull --build-arg AIRFLOW_BASE_TAG=3.2.0 \
-     -t cccortesh/mlops-airflow:$TAG .
-   docker push cccortesh/mlops-airflow:$TAG
+     -t cccortesh/mlops-airflow:latest .
+   docker push cccortesh/mlops-airflow:latest
    ```
 4. Actualizar Helm:
    ```bash
    helm upgrade --install $RELEASE_NAME apache-airflow/airflow \
      --namespace $NAMESPACE \
      --set images.airflow.repository=cccortesh/mlops-airflow \
-     --set images.airflow.tag=$TAG \
+     --set images.airflow.tag=latest \
+     --set images.airflow.pullPolicy=Always \
      -f values/values-local.yaml \
      --wait --timeout 20m
    ```
 
 ---
 
-## DAGs incluidos
+## Implementación de los DAGs
 
-| DAG | Descripción |
-|-----|-------------|
-| `hello_level3` | DAG de prueba para verificar que Airflow funciona en Kubernetes |
-| `diabetes_pipeline` | Pipeline MLOps completo con 10 tareas secuenciales |
+El proyecto usa dos DAGs independientes que simulan un escenario real de producción donde los datos llegan de forma continua y el modelo se reentrena periódicamente con datos acumulados.
 
-### Tareas del DAG `diabetes_pipeline`
+### Arquitectura de los DAGs
 
-| # | Task ID | Descripción |
-|---|---------|-------------|
-| 1 | `validate_source` | Descarga y valida el archivo CSV fuente |
-| 2 | `load_raw_batch` | Carga incremental por lotes (máx 15,000 registros) |
-| 3 | `validate_quality` | Validación de calidad: conteo, duplicados, límites |
-| 4 | `preprocess_data` | Limpieza, nulos, ingeniería de features, encoding |
-| 5 | `store_clean_data` | Almacena datos procesados en tabla `clean_data` |
-| 6 | `split_data` | Separación 70/15/15 estratificada (train/val/test) |
-| 7 | `train_models` | Entrena LogisticRegression, XGBoost y LightGBM |
-| 8 | `compare_models` | Compara contra el modelo productivo actual en MLflow |
-| 9 | `promote_best_model` | Asigna alias `champion` al mejor modelo por ROC-AUC |
+```
+ingestion_pipeline (cada 5 min)          training_pipeline (cada 5 min + 10s)
+┌──────────────────────┐                 ┌──────────────────────────┐
+│ validate_source      │                 │ preprocess_data          │
+│        ↓             │                 │        ↓                 │
+│ load_raw_batch       │  ──status──→    │ store_clean_data         │
+│        ↓             │   column        │        ↓                 │
+│ validate_quality     │                 │ train_and_promote        │
+└──────────────────────┘                 └──────────────────────────┘
+     raw_data_db                          clean_data_db    MLflow
+```
+
+Los DAGs no se comunican entre sí directamente. La coordinación se hace a través de la columna `status` en la tabla `raw.diabetes_raw`:
+- `loaded` → dato nuevo, pendiente de procesar
+- `processed` → dato ya procesado y almacenado en clean
+
+### Estructura de archivos
+
+Cada tarea está en su propio archivo Python dentro de `airflow/dags/tasks/`:
+
+```
+dags/
+├── ingestion_pipeline.py       # DAG de ingesta (define el flujo)
+├── training_pipeline.py        # DAG de entrenamiento (define el flujo)
+└── tasks/
+    ├── __init__.py
+    ├── config.py               # Configuración compartida y engines de BD
+    ├── validate_source.py      # Descarga y valida el CSV fuente
+    ├── load_raw_batch.py       # Carga incremental a raw
+    ├── validate_quality.py     # Validación del batch
+    ├── preprocess_data.py      # Limpieza, encoding y asignación de split
+    ├── store_clean_data.py     # Guarda en clean y marca raw como processed
+    └── train_and_promote.py    # Entrena, registra en MLflow y promueve
+```
+
+### DAG 1: `ingestion_pipeline`
+
+Simula la llegada incremental de datos. Se ejecuta cada 5 minutos y carga un lote de máximo 15,000 registros del CSV fuente a la tabla `raw.diabetes_raw`. Se detiene automáticamente cuando todo el dataset está cargado.
+
+| Tarea | Descripción |
+|-------|-------------|
+| `validate_source` | Verifica que el CSV existe en `/tmp/`. Si no, lo descarga desde Google Drive |
+| `load_raw_batch` | Lee el siguiente lote de 15,000 registros y los inserta en `raw.diabetes_raw` con metadatos: `batch_id`, `load_timestamp`, `source_file`, `row_hash`, `status` |
+| `validate_quality` | Verifica conteo del batch, límite de registros y duplicados por `row_hash` |
+
+La tabla `raw.diabetes_raw` se crea automáticamente en la primera ejecución con los nombres exactos de las columnas del CSV.
+
+### DAG 2: `training_pipeline`
+
+Procesa los datos nuevos y reentrena los modelos. Se ejecuta cada 5 minutos con 10 segundos de desfase respecto al ingestion, para que los datos ya estén disponibles.
+
+| Tarea | Descripción |
+|-------|-------------|
+| `preprocess_data` | Lee registros con `status='loaded'` de raw. Aplica limpieza (nulos, columnas innecesarias), binariza el target (`readmitted='<30'` → 1), codifica variables categóricas con LabelEncoder y asigna la columna `split` (70% train, 15% validation, 15% test) |
+| `store_clean_data` | Agrega los datos procesados a `clean.diabetes_clean` (acumulativo). Marca los registros raw como `processed` |
+| `train_and_promote` | Lee **todos** los datos acumulados de clean, los separa por la columna `split`, entrena 3 modelos (LogisticRegression, XGBoost, LightGBM), registra cada uno en MLflow con métricas y parámetros, compara contra el modelo productivo actual y promueve el mejor con el alias `champion` usando recall como métrica de selección |
+
+### Modelos entrenados
+
+| Modelo | Características |
+|--------|----------------|
+| LogisticRegression | `max_iter=1000`, `class_weight='balanced'` |
+| XGBoost | `n_estimators=100`, `max_depth=6`, `scale_pos_weight` ajustado al desbalance |
+| LightGBM | `n_estimators=100`, `max_depth=6`, `class_weight='balanced'` |
+
+### Métrica principal: Recall (sensibilidad)
+
+Se usa recall como métrica de selección del mejor modelo porque en un contexto clínico el costo de un falso negativo es significativamente mayor que el de un falso positivo. No detectar a un paciente que será readmitido en menos de 30 días implica que no recibe intervención preventiva y termina hospitalizado de nuevo, con el costo económico y de salud que eso conlleva. Un falso positivo (alertar sobre un paciente que no será readmitido) solo genera una revisión adicional, que es un costo menor.
+
+ROC-AUC mide la capacidad discriminativa general del modelo pero no penaliza directamente los falsos negativos. Recall sí: mide qué proporción de los casos positivos reales fueron correctamente identificados. En problemas de clasificación clínica con clases desbalanceadas, maximizar recall es la prioridad.
+
+Se registran además en MLflow las métricas complementarias (ROC-AUC, F1, precision, accuracy) para análisis posterior.
+
+### Promoción del modelo
+
+La promoción no es automática de MLflow — se implementa en el código. Después de entrenar los 3 modelos:
+
+1. Se identifica el mejor por `val_roc_auc`
+2. Se consulta el modelo productivo actual (alias `champion`) en MLflow
+3. Si el candidato supera al productivo, se le asigna el alias `champion`
+4. Si no hay modelo productivo previo, el primer modelo entrenado se promueve automáticamente
+
+La API de inferencia consulta dinámicamente el modelo con alias `champion` desde MLflow.
 
 ---
 
@@ -598,10 +699,14 @@ Abrir: http://localhost:8080
 
 | Problema | Causa | Solución |
 |----------|-------|----------|
+| `Init:CrashLoopBackOff` en pods de Airflow | Migraciones de BD no aplicadas | Ejecutar `airflow db migrate` manualmente (ver Paso 4 de Airflow) |
+| `OOMKilled` en MLflow | Memoria insuficiente | Aumentar `resources.limits.memory` en el deployment |
+| `Invalid Host header` en MLflow | MLflow rechaza requests por protección DNS rebinding | Agregar `--allowed-hosts all` en los args del deployment de MLflow |
+| `password authentication failed` | PVC conserva password anterior | Borrar StatefulSet y PVC, redesplegar |
 | CrashLoopBackOff en `airflow-api-server` | Incompatibilidad entre versión del chart y la imagen | Alinear `AIRFLOW_BASE_TAG` con `APP VERSION` del chart |
-| ImagePullBackOff | Imagen no existe en DockerHub o tag incorrecto | Verificar con `docker pull cccortesh/mlops-airflow:0.0.1` |
-| No aparece el DAG nuevo | Imagen vieja en los pods | Reconstruir, push a DockerHub con nuevo tag y `helm upgrade` |
-| Port-forward no funciona | Servicio no encontrado | Verificar con `kubectl get svc -n $NAMESPACE` |
+| ImagePullBackOff | Imagen no existe en DockerHub o tag incorrecto | Verificar con `docker pull cccortesh/mlops-airflow:latest` |
+| No aparece el DAG nuevo | Imagen vieja en los pods | Reconstruir, push a DockerHub y `helm upgrade` |
+| Port-forward no funciona | Servicio no encontrado | Verificar con `kubectl get svc -n mlops` |
 
 ---
 
@@ -609,8 +714,7 @@ Abrir: http://localhost:8080
 
 ```bash
 # Desinstalar Airflow
-helm uninstall $RELEASE_NAME -n $NAMESPACE
-kubectl delete namespace $NAMESPACE
+helm uninstall airflow -n mlops
 
 # Eliminar componentes
 kubectl delete -f k8s/grafana/
