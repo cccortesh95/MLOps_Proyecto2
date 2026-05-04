@@ -3,18 +3,32 @@ DAG: training_pipeline
 Procesa datos nuevos, los almacena en clean y reentrena modelos.
 
 Flujo:
-  1. preprocess_data    → Lee registros 'loaded' de raw, limpia y asigna split
-  2. store_clean_data   → Guarda en clean con columna split, marca raw como processed
-  3. train_and_promote  → Entrena con todos los datos acumulados en clean,
-                          registra en MLflow, compara y promueve si mejora
+  1. preprocess_and_store → En un solo proceso: limpia raw (parquet) y persiste en clean
+                             + marca raw como processed. Evita perder el parquet en /tmp
+                             entre reintentos o reinicios del scheduler.
+  2. train_and_promote    → Entrena con datos acumulados en clean, MLflow, promoción champion
 """
 
+import os
+import sys
 from datetime import datetime, timedelta
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 
+# Airflow 3 no siempre incluye /opt/airflow/dags en PYTHONPATH.
+# Agregamos el directorio del DAG para resolver `from tasks import ...`.
+DAGS_DIR = os.path.dirname(__file__)
+if DAGS_DIR not in sys.path:
+    sys.path.append(DAGS_DIR)
+
 from tasks import preprocess_data, store_clean_data, train_and_promote
+
+
+def _preprocess_and_store(**kwargs):
+    """Ejecuta preprocess y store en la misma tarea para que el parquet siga existiendo."""
+    preprocess_data.run(**kwargs)
+    store_clean_data.run(**kwargs)
 
 default_args = {
     "owner": "mlops",
@@ -35,8 +49,10 @@ with DAG(
     max_active_runs=1,
 ) as dag:
 
-    t1 = PythonOperator(task_id="preprocess_data", python_callable=preprocess_data.run)
-    t2 = PythonOperator(task_id="store_clean_data", python_callable=store_clean_data.run)
-    t3 = PythonOperator(task_id="train_and_promote", python_callable=train_and_promote.run)
+    t_prep = PythonOperator(
+        task_id="preprocess_and_store",
+        python_callable=_preprocess_and_store,
+    )
+    t_train = PythonOperator(task_id="train_and_promote", python_callable=train_and_promote.run)
 
-    t1 >> t2 >> t3
+    t_prep >> t_train

@@ -16,6 +16,7 @@
 - [Despliegue de MinIO](#despliegue-de-minio)
 - [Despliegue de MLflow](#despliegue-de-mlflow)
 - [Despliegue de Airflow](#despliegue-de-airflow)
+- [Capa de inferencia (API, Streamlit y Locust)](#capa-de-inferencia-api-streamlit-y-locust)
 - [Actualización de DAGs](#actualización-de-dags)
 - [Implementación de los DAGs](#implementación-de-los-dags)
 - [Troubleshooting](#troubleshooting)
@@ -168,6 +169,35 @@ Todas las imágenes custom del proyecto se publican en DockerHub. Los manifiesto
 | `DATA_DB_USER` | `mlops_user` |
 | `DATA_DB_PASSWORD` | `mlops1234` |
 
+### API de inferencia, Streamlit y Locust
+
+Estas variables las inyectan los manifiestos en `k8s/api/`, `k8s/streamlit/` y `k8s/locust/` (ConfigMap / Secret). Sirven para alinear la inferencia con MLflow y con la base `inference_db`.
+
+**API (`api-config` + `api-secret`)**
+
+| Variable | Descripción |
+|----------|-------------|
+| `MLFLOW_TRACKING_URI` | URI del servidor MLflow (p. ej. `http://mlflow-service:5000`) |
+| `MLFLOW_S3_ENDPOINT_URL` | Endpoint S3-compatible de MinIO para descargar artefactos |
+| `MODEL_NAME` | Nombre del modelo en el Model Registry (por defecto `diabetes-model`) |
+| `DB_HOST` | Host de PostgreSQL donde está `inference_db` |
+| `DB_PORT` | Puerto PostgreSQL (`5432`) |
+| `DB_NAME` | Base de datos de logs (`inference_db`) |
+| `DB_USER` / `DB_PASSWORD` | Credenciales (Secret `api-secret`) |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | Credenciales MinIO para que MLflow/Boto puedan leer artefactos |
+
+**Streamlit (`streamlit-config`)**
+
+| Variable | Descripción |
+|----------|-------------|
+| `API_URL` | URL base de la API dentro del clúster (p. ej. `http://api-service:8000`). La UI solo habla con FastAPI, no con MLflow. |
+
+**Locust (`locust-config`)**
+
+| Variable | Descripción |
+|----------|-------------|
+| `LOCUST_HOST` | URL base contra la que se genera carga (p. ej. `http://api-service:8000`). El `Dockerfile` de Locust usa esta variable en el comando de arranque. |
+
 ---
 
 ## Requisitos previos
@@ -293,6 +323,8 @@ kubectl apply -f k8s/api/
 kubectl apply -f k8s/streamlit/
 ```
 
+Comportamiento funcional, endpoints y pruebas de carga: ver [Capa de inferencia (API, Streamlit y Locust)](#capa-de-inferencia-api-streamlit-y-locust).
+
 ### 5. Observabilidad y pruebas de carga
 
 La imagen `cccortesh/mlops-locust` se jala desde DockerHub. Prometheus y Grafana usan imágenes oficiales.
@@ -301,6 +333,116 @@ La imagen `cccortesh/mlops-locust` se jala desde DockerHub. Prometheus y Grafana
 kubectl apply -f k8s/prometheus/
 kubectl apply -f k8s/grafana/
 kubectl apply -f k8s/locust/
+```
+
+---
+
+## Capa de inferencia (API, Streamlit y Locust)
+
+Esta capa implementa el consumo del modelo ya promovido en MLflow: **FastAPI** sirve inferencia y métricas, **Streamlit** ofrece una UI que solo llama a la API, y **Locust** ejerce carga sobre los mismos endpoints. El código vive en `api/`, `streamlit/` y `locust/`.
+
+### Requisitos previos (inferencia)
+
+1. **PostgreSQL** desplegado con el script de init que crea `inference_db` y la tabla `inference.inference_logs` (ver [Despliegue de PostgreSQL](#despliegue-de-postgresql)).
+2. **MLflow y MinIO** operativos, con al menos una versión del modelo registrada como `diabetes-model` y el alias **`champion`** asignado por el DAG `training_pipeline` (tarea `train_and_promote`). Sin `champion`, la API arranca en estado **degradado** (`/health`) hasta que exista un modelo promovido.
+3. Imágenes publicadas y manifiestos aplicados (`k8s/api/`, `k8s/streamlit/`, `k8s/locust/`).
+
+### API de inferencia (FastAPI)
+
+| Módulo (`api/app/`) | Rol |
+|---------------------|-----|
+| `main.py` | Rutas HTTP, instrumentación Prometheus y orquestación de la petición |
+| `schemas.py` | Modelos Pydantic de entrada/salida |
+| `model_loader.py` | Resolución del URI `models:/<MODEL_NAME>@champion`, carga con `mlflow.sklearn.load_model` y orden de columnas desde `feature_names_in_` |
+| `database.py` | Inserción de cada inferencia en `inference.inference_logs` (fallos de BD no cortan la respuesta al cliente) |
+| `metrics.py` | Métricas propias: `mlops_predict_latency_seconds`, `mlops_predict_requests_total`, `mlops_predict_errors_total` |
+
+**Endpoints principales**
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| `GET` | `/` | Metadatos mínimos del servicio |
+| `GET` | `/health` | Estado `ok` o `degradado`, si el modelo está cargado y versión actual |
+| `GET` | `/model-info` | Nombre del modelo, versión, alias `champion`, lista de características esperadas |
+| `GET` | `/example-features` | JSON con todas las características en `0.0` (plantilla para pruebas o UI) |
+| `POST` | `/predict` | Inferencia; ver formato abajo |
+| `GET` | `/metrics` | Métricas Prometheus (incluye histogramas/counters propios y las añadidas por `prometheus-fastapi-instrumentator`) |
+
+**Contrato de `/predict`**
+
+Cuerpo JSON con un objeto `features`: mapa **nombre de columna → número** (mismos nombres y orden semántico que en el entrenamiento: todas las columnas del modelo salvo `readmitted` y `split`). Faltan columnas o sobran claves no esperadas → **422** con `missing_features` / `extra_features` en el detalle.
+
+Ejemplo mínimo (sustituir por la plantilla real de `/example-features`):
+
+```json
+{
+  "features": {
+    "race": 0.0,
+    "gender": 1.0
+  }
+}
+```
+
+Respuesta exitosa incluye `prediction`, `probability` (si el estimador expone `predict_proba`), `model_name`, `model_version`, `response_time_ms` y `request_id` (también persistido en BD).
+
+**Recarga del modelo**
+
+Periódicamente (alrededor de cada 60 s bajo tráfico en `/predict`) se comprueba si el alias `champion` apunta a una **nueva versión** en el registry; en ese caso se vuelve a cargar el artefacto sin reiniciar el pod.
+
+**Dependencias del contenedor**
+
+La API incluye `xgboost` y `lightgbm` además de `scikit-learn`, para poder deserializar los mismos tipos de modelo que registra Airflow con `mlflow.sklearn.log_model`.
+
+**Prueba local rápida** (con variables apuntando a MLflow/Postgres accesibles):
+
+```bash
+cd api
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+Documentación interactiva: `http://localhost:8000/docs`.
+
+### Streamlit
+
+- **Código**: `streamlit/app/app.py`.
+- **Comunicación**: solo **HTTP** hacia la API (`requests`). No se usa el tracking URI de MLflow desde la UI.
+- **Configuración**: variable `API_URL` (en Kubernetes viene del ConfigMap `streamlit-config`, p. ej. `http://api-service:8000`).
+- **Flujo sugerido**: comprobar `/health` → refrescar `/model-info` → obtener `/example-features` para rellenar el editor JSON → enviar `/predict` y revisar predicción y versión del modelo.
+
+```bash
+cd streamlit
+streamlit run app/app.py --server.port 8501
+```
+
+### Locust (pruebas de carga)
+
+- **Código**: `locust/locustfile.py`.
+- **Host**: clase `HttpUser` con host por defecto desde `LOCUST_HOST` (ConfigMap `locust-config` en el clúster). El `Dockerfile` ejecuta Locust con `--host` tomando esa variable.
+- **Comportamiento**: en `on_start` cada usuario virtual solicita `/example-features` y construye el cuerpo de `/predict`. Las tareas mezclan `POST /predict`, `GET /health` y `GET /model-info`. Si aún no hay modelo, los intentos a `/example-features` fallan y el usuario cae en un fallback mínimo (principalmente `/health`).
+
+**UI de Locust (dentro del clúster)**
+
+```bash
+kubectl port-forward svc/locust-service 8089:8089 -n mlops
+```
+
+Abrir `http://localhost:8089`, fijar host si hace falta y arrancar la prueba.
+
+**Modo headless (ejemplo)**
+
+```bash
+docker run --rm -e LOCUST_HOST=http://api-service:8000 cccortesh/mlops-locust:latest \
+  locust -f locustfile.py --host http://api-service:8000 --headless -u 10 -r 2 -t 60s
+```
+
+(Ajustar `--host` a la URL alcanzable desde donde se ejecute el contenedor.)
+
+### Exposición con port-forward
+
+```bash
+kubectl port-forward svc/api-service 8000:8000 -n mlops
+kubectl port-forward svc/streamlit-service 8501:8501 -n mlops
+kubectl port-forward svc/locust-service 8089:8089 -n mlops
 ```
 
 ---
@@ -612,9 +754,9 @@ El proyecto usa dos DAGs independientes que simulan un escenario real de producc
 ```
 ingestion_pipeline (cada 5 min)          training_pipeline (cada 5 min + 10s)
 ┌──────────────────────┐                 ┌──────────────────────────┐
-│ validate_source      │                 │ preprocess_data          │
-│        ↓             │                 │        ↓                 │
-│ load_raw_batch       │  ──status──→    │ store_clean_data         │
+│ validate_source      │                 │ preprocess_and_store     │
+│        ↓             │                 │ (preprocess + store en   │
+│ load_raw_batch       │  ──status──→    │  un solo operador)       │
 │        ↓             │   column        │        ↓                 │
 │ validate_quality     │                 │ train_and_promote        │
 └──────────────────────┘                 └──────────────────────────┘
@@ -662,8 +804,7 @@ Procesa los datos nuevos y reentrena los modelos. Se ejecuta cada 5 minutos con 
 
 | Tarea | Descripción |
 |-------|-------------|
-| `preprocess_data` | Lee registros con `status='loaded'` de raw. Aplica limpieza (nulos, columnas innecesarias), binariza el target (`readmitted='<30'` → 1), codifica variables categóricas con LabelEncoder y asigna la columna `split` (70% train, 15% validation, 15% test) |
-| `store_clean_data` | Agrega los datos procesados a `clean.diabetes_clean` (acumulativo). Marca los registros raw como `processed` |
+| `preprocess_and_store` | Una sola tarea que ejecuta en secuencia la lógica de `preprocess_data.py` (lee `loaded` en raw, limpieza, encoding, `split`) y `store_clean_data.py` (append a `clean.diabetes_clean`, marca raw como `processed`). Así el parquet intermedio en `/tmp` no se pierde entre reintentos o reinicios del scheduler entre dos operadores distintos. |
 | `train_and_promote` | Lee **todos** los datos acumulados de clean, los separa por la columna `split`, entrena 3 modelos (LogisticRegression, XGBoost, LightGBM), registra cada uno en MLflow con métricas y parámetros, compara contra el modelo productivo actual y promueve el mejor con el alias `champion` usando recall como métrica de selección |
 
 ### Modelos entrenados
@@ -707,6 +848,8 @@ La API de inferencia consulta dinámicamente el modelo con alias `champion` desd
 | ImagePullBackOff | Imagen no existe en DockerHub o tag incorrecto | Verificar con `docker pull cccortesh/mlops-airflow:latest` |
 | No aparece el DAG nuevo | Imagen vieja en los pods | Reconstruir, push a DockerHub y `helm upgrade` |
 | Port-forward no funciona | Servicio no encontrado | Verificar con `kubectl get svc -n mlops` |
+| API en `degraded` o `/predict` con **503** | No existe versión con alias `champion` para `diabetes-model` | Ejecutar el DAG `training_pipeline` hasta que `train_and_promote` registre y promueva un modelo; revisar MLflow → Models |
+| `/predict` con **422** (missing/extra features) | JSON no coincide con las columnas del modelo | Usar `GET /example-features` o copiar claves exactas desde `GET /model-info` → `feature_names` |
 
 ---
 

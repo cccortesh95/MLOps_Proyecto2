@@ -8,10 +8,18 @@ Flujo:
   3. validate_quality  → Validación del batch cargado
 """
 
+import os
+import sys
 from datetime import datetime, timedelta
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+
+# Airflow 3 no siempre incluye /opt/airflow/dags en PYTHONPATH.
+# Agregamos el directorio del DAG para resolver `from tasks import ...`.
+DAGS_DIR = os.path.dirname(__file__)
+if DAGS_DIR not in sys.path:
+    sys.path.append(DAGS_DIR)
 
 from tasks import validate_source, load_raw_batch, validate_quality
 
