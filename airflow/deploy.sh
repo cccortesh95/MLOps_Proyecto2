@@ -1,7 +1,16 @@
 #!/bin/bash
 # =============================================================================
-# Script de despliegue de Airflow en Kubernetes
-# Construye la imagen, la publica en DockerHub e instala con Helm.
+# Script de despliegue de Airflow en Kubernetes.
+#
+# Construye la imagen custom, la publica en DockerHub e instala/actualiza el
+# chart oficial de Apache Airflow con los values de `values/values-local.yaml`.
+#
+# Las migraciones de BD y la creación del usuario admin las realizan los jobs
+# `migrateDatabaseJob` y `createUserJob` habilitados en `values-local.yaml`,
+# por lo que no se requiere intervención manual tras el `helm upgrade`.
+#
+# NOTA: No se usa --wait para evitar que Helm se bloquee si la migración tarda.
+# Monitorear con: kubectl get pods -n $NAMESPACE -w
 # =============================================================================
 
 set -e
@@ -9,7 +18,7 @@ set -e
 # --- Configuración ---
 NAMESPACE="${NAMESPACE:-mlops}"
 RELEASE_NAME="${RELEASE_NAME:-airflow}"
-AIRFLOW_BASE_TAG="${AIRFLOW_BASE_TAG:-3.1.8}"
+AIRFLOW_BASE_TAG="${AIRFLOW_BASE_TAG:-3.2.0}"
 DOCKERHUB_USER="${DOCKERHUB_USER:-cccortesh}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 IMAGE_NAME="$DOCKERHUB_USER/mlops-airflow"
@@ -57,19 +66,20 @@ helm upgrade --install $RELEASE_NAME apache-airflow/airflow \
   --namespace $NAMESPACE \
   --set images.airflow.repository=$IMAGE_NAME \
   --set images.airflow.tag=$IMAGE_TAG \
+  --set images.airflow.pullPolicy=Always \
   -f values/values-local.yaml \
-  --wait --timeout 20m
+  --timeout 20m
 
 echo ""
 echo "============================================="
 echo " Despliegue completado!"
 echo "============================================="
 echo ""
-echo "Verificar pods:"
-echo "  kubectl get pods -n $NAMESPACE"
+echo "Monitorear pods (esperar a que estén Running):"
+echo "  kubectl get pods -n $NAMESPACE -w"
 echo ""
 echo "Exponer UI de Airflow:"
 echo "  kubectl port-forward svc/$RELEASE_NAME-api-server 8080:8080 -n $NAMESPACE"
 echo ""
-echo "Abrir: http://localhost:8080"
+echo "Abrir: http://localhost:8080   (user: admin / pass: admin)"
 echo ""

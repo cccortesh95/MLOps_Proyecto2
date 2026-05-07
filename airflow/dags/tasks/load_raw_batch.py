@@ -2,18 +2,33 @@
 
 import hashlib
 import logging
+import os
 from datetime import datetime
 
 import pandas as pd
+import requests
 from airflow.exceptions import AirflowSkipException
 from sqlalchemy import text
 
-from tasks.config import BATCH_SIZE, LOCAL_CSV_PATH, get_raw_engine
+from tasks.config import BATCH_SIZE, DATA_SOURCE_URL, LOCAL_CSV_PATH, get_raw_engine
 
 logger = logging.getLogger(__name__)
 
 
+def _ensure_csv():
+    """Descarga el CSV si no existe en /tmp (puede perderse entre reinicios de pod)."""
+    if os.path.isfile(LOCAL_CSV_PATH):
+        return
+    logger.info("CSV no encontrado en /tmp, descargando...")
+    r = requests.get(DATA_SOURCE_URL, allow_redirects=True, stream=True, timeout=120)
+    r.raise_for_status()
+    with open(LOCAL_CSV_PATH, "wb") as f:
+        f.write(r.content)
+    logger.info("CSV descargado exitosamente.")
+
+
 def run(**kwargs):
+    _ensure_csv()
     engine = get_raw_engine()
     df_full = pd.read_csv(LOCAL_CSV_PATH, na_values="?", low_memory=False)
     total_rows = len(df_full)

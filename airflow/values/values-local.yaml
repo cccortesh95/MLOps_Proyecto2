@@ -10,6 +10,9 @@ executor: LocalExecutor
 env:
   - name: AIRFLOW__CORE__LOAD_EXAMPLES
     value: "False"
+  # Aumentar timeout de importación de DAGs (default 30s es insuficiente con boto3)
+  - name: AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT
+    value: "120"
   # Conexión a la base de datos del proyecto (PostgreSQL externo)
   - name: AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION
     value: "True"
