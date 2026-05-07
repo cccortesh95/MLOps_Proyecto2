@@ -8,6 +8,11 @@
 - [Estructura del proyecto](#estructura-del-proyecto)
 - [Imágenes en DockerHub](#imágenes-en-dockerhub)
 - [Variables de entorno](#variables-de-entorno)
+- [Configuración de manifiestos y recursos](#configuración-de-manifiestos-y-recursos)
+  - [Resumen de recursos](#resumen-de-recursos-cpu--memoria)
+  - [Almacenamiento persistente](#almacenamiento-persistente)
+  - [Health checks](#health-checks)
+  - [Consideraciones por servicio](#consideraciones-por-servicio)
 - [Requisitos previos](#requisitos-previos)
 - [Despliegue paso a paso](#despliegue-paso-a-paso)
   - [1. Crear el clúster](#1-crear-el-clúster)
@@ -198,6 +203,131 @@ Inyectadas por los manifiestos en `k8s/api/`, `k8s/streamlit/` y `k8s/locust/` (
 | Variable | Descripción |
 |----------|-------------|
 | `LOCUST_HOST` | URL base contra la que se genera carga (`http://api-service:8000`). |
+
+---
+
+## Configuración de manifiestos y recursos
+
+Todos los servicios del namespace `mlops` aplican las mismas convenciones:
+
+- **Replicas**: 1 (entorno local en kind).
+- **Namespace**: `mlops` (definido en `k8s/namespace/namespace.yaml`).
+- **Separación de configuración y secretos**: ConfigMaps para valores no sensibles (hosts, puertos, endpoints) y Secrets para credenciales. Los pods los inyectan con `envFrom`.
+- **Almacenamiento persistente**: Los servicios con estado (postgres, minio, prometheus, grafana) usan `PersistentVolumeClaim` con modo `ReadWriteOnce`.
+- **Probes**: `readinessProbe` y `livenessProbe` en todos los deployments/statefulsets.
+- **Image pull policy**: `Always` en imágenes custom publicadas en DockerHub, para garantizar que `helm upgrade` o `kubectl rollout restart` siempre jalen la versión más reciente.
+
+### Resumen de recursos (CPU / memoria)
+
+| Servicio | Tipo | CPU req / limit | Memoria req / limit |
+|---|---|---|---|
+| `postgres` | StatefulSet | `250m` / `500m` | `256Mi` / `512Mi` |
+| `mlflow-postgres` | StatefulSet | `100m` / `250m` | `256Mi` / `512Mi` |
+| `minio` | StatefulSet | `250m` / `500m` | `256Mi` / `512Mi` |
+| `minio-create-bucket` | Job | `50m` / `100m` | `64Mi` / `128Mi` |
+| `mlflow` | Deployment | `250m` / `1` | `512Mi` / `2Gi` |
+| `inference-api` | Deployment | `250m` / `500m` | `512Mi` / `1Gi` |
+| `streamlit` | Deployment | `100m` / `250m` | `256Mi` / `512Mi` |
+| `locust` | Deployment | `100m` / `500m` | `256Mi` / `512Mi` |
+| `prometheus` | Deployment | `100m` / `250m` | `256Mi` / `512Mi` |
+| `grafana` | Deployment | `100m` / `250m` | `256Mi` / `512Mi` |
+| `airflow-webserver` (Helm) | Deployment | `250m` / `500m` | `512Mi` / `1Gi` |
+| `airflow-scheduler` (Helm) | StatefulSet | `1` / `3` | `1Gi` / `3Gi` |
+| `airflow-triggerer` (Helm) | StatefulSet | `100m` / `250m` | `256Mi` / `512Mi` |
+| `airflow-postgresql` (Helm) | StatefulSet | `100m` / `250m` | `256Mi` / `512Mi` |
+
+> El `scheduler` de Airflow tiene los límites más altos porque es donde se ejecutan las tareas de los DAGs (entrenamiento de modelos con 3 cores).
+
+### Almacenamiento persistente
+
+| PVC | Servicio | Tamaño | Modo |
+|---|---|---|---|
+| `postgres-pvc` | postgres (datos del proyecto) | `5Gi` | `ReadWriteOnce` |
+| `mlflow-postgres-pvc` | mlflow-postgres (metadata) | `2Gi` | `ReadWriteOnce` |
+| `minio-pvc` | minio (artefactos) | `10Gi` | `ReadWriteOnce` |
+| `prometheus-pvc` | prometheus (TSDB) | `2Gi` | `ReadWriteOnce` |
+| `grafana-pvc` | grafana (dashboards y estado) | `1Gi` | `ReadWriteOnce` |
+
+> **Borrar PVCs al redesplegar**: los StatefulSets **no** borran los PVCs automáticamente. Si cambiaste credenciales o quieres un estado limpio, hay que borrarlos a mano: `kubectl delete pvc <nombre> -n mlops`.
+
+### Health checks
+
+| Servicio | Probe | Chequeo |
+|---|---|---|
+| postgres / mlflow-postgres | exec | `pg_isready -U <user> -d <db>` |
+| minio | HTTP | `GET /minio/health/ready` y `/minio/health/live` (puerto 9000) |
+| mlflow | HTTP | `GET /health` (puerto 5000) |
+| inference-api | HTTP | `GET /health` (puerto 8000) |
+| streamlit | HTTP | `GET /_stcore/health` (puerto 8501) |
+| locust | HTTP | `GET /` (puerto 8089) |
+| prometheus | HTTP | `GET /-/ready` y `/-/healthy` (puerto 9090) |
+| grafana | HTTP | `GET /api/health` (puerto 3000) |
+
+Todos los probes usan `initialDelaySeconds: 10-30s`, `periodSeconds: 10-20s` y `timeoutSeconds: 5s`.
+
+### Consideraciones por servicio
+
+#### PostgreSQL (datos del proyecto)
+
+- Imagen `postgres:16-alpine`.
+- El ConfigMap `postgres-init-scripts` monta un script en `/docker-entrypoint-initdb.d/` que se ejecuta **solo en la primera inicialización** (cuando el directorio de datos está vacío). Crea las 3 BDs (`raw_data_db`, `clean_data_db`, `inference_db`), sus esquemas y la tabla `inference.inference_logs`.
+- Si el PVC ya tiene datos, el script no vuelve a correr. Para reinicializar hay que borrar el PVC (`kubectl delete pvc postgres-pvc -n mlops`).
+- Las tablas `raw.diabetes_raw` y `clean.diabetes_clean` las crea el DAG al primer insert, con las columnas exactas del CSV fuente.
+
+#### MLflow PostgreSQL
+
+- Instancia dedicada para la metadata de MLflow, separada del postgres de datos para aislar cargas y ciclos de vida.
+- Solo una BD (`mlflow_db`) con credenciales propias (`mlflow_user` / `mlflow1234`).
+
+#### MinIO
+
+- Expone dos puertos: `9000` (API S3-compatible) y `9001` (consola web).
+- Volumen montado en `/data`.
+- El `Job` `minio-create-bucket` corre una sola vez al aplicar el folder y crea el bucket `mlflow-artifacts` usando `mc` (MinIO Client). Si el job falla (p. ej. MinIO aún no está listo), se puede recrear: `kubectl delete job minio-create-bucket -n mlops && kubectl apply -f k8s/minio/job-create-bucket.yaml`.
+
+#### MLflow (tracking server)
+
+- Imagen custom (`cccortesh/mlops-mlflow:latest`) porque la oficial no incluye `psycopg2` ni `boto3`.
+- El servidor se arranca con `--allowed-hosts "*"` para evitar el error `Invalid Host header` en entornos locales donde el DNS interno del clúster cambia.
+- Variables de entorno inyectadas desde `mlflow-config` (endpoints) y `mlflow-secret` (credenciales S3).
+
+#### API de inferencia
+
+- Imagen custom (`cccortesh/mlops-api:latest`) con `xgboost` y `lightgbm` además de `scikit-learn` para poder deserializar los mismos tipos de modelo que registra Airflow.
+- El `readinessProbe` apunta a `/health`, que devuelve `degraded` si no hay modelo con alias `champion`. **Nota**: aunque esté degraded, el probe devuelve 200, por lo que el pod se considera Ready. Esto es intencional para no bloquear el tráfico mientras Airflow promueve el primer modelo.
+
+#### Streamlit
+
+- Probe en `/_stcore/health` (endpoint estándar de Streamlit).
+- Solo necesita `API_URL` del ConfigMap `streamlit-config`. No habla con MLflow.
+
+#### Locust
+
+- Imagen custom que ejecuta `locust -f locustfile.py --host $LOCUST_HOST` al arrancar.
+- Probe simple en `/` porque la UI web responde 200 cuando está lista.
+- Para pruebas en modo headless, usar `docker run` fuera del clúster (ver [Detalles por servicio → Locust](#locust-1)).
+
+#### Prometheus
+
+- Retención de 7 días configurada con `--storage.tsdb.retention.time=7d`.
+- Config montada desde el ConfigMap `prometheus-config`.
+- Los targets (API, MLflow) están definidos en `prometheus/prometheus.yml` con service discovery estático.
+
+#### Grafana
+
+- Usa provisioning para cargar datasources y dashboards al arranque (no hay que configurarlos manualmente).
+- Credenciales en el Secret `grafana-secret` (por defecto `admin/admin`).
+- Datasource apunta a `http://prometheus-service:9090` y se crea automáticamente.
+
+#### Airflow (Helm)
+
+- Chart oficial `apache-airflow/airflow` con values en `airflow/values/values-local.yaml`.
+- **Executor**: `LocalExecutor` (no requiere Redis/Celery, suficiente para el volumen local).
+- **Jobs automáticos**: `migrateDatabaseJob` corre las migraciones en cada `helm upgrade`; `createUserJob` + `defaultUser` crea el usuario `admin/admin`.
+- **PostgreSQL interno**: habilitado (`postgresql.enabled: true`), separado de las instancias del proyecto. Es solo para metadata de Airflow.
+- **Variables globales**: el bloque `env` en los values expone `MLFLOW_TRACKING_URI`, credenciales de MinIO y los nombres de las BDs del proyecto a todos los componentes (scheduler, webserver, triggerer, workers).
+- **`DAGBAG_IMPORT_TIMEOUT: 120`**: el timeout por defecto de 30s era insuficiente porque Airflow 3.x carga providers pesados (boto3) al parsear DAGs con Assets.
+- **Assets (antes Datasets)**: los DAGs usan `airflow.sdk.Asset("diabetes_raw_data")` con un URI genérico para evitar que se disparen validaciones del provider de Postgres o S3 durante el parsing.
 
 ---
 
@@ -613,8 +743,8 @@ Se registran también en MLflow las métricas complementarias (ROC-AUC, F1, prec
 
 ### Promoción del modelo
 
-1. Se identifica el mejor candidato por `val_roc_auc`.
-2. Se consulta el modelo productivo actual (alias `champion`).
+1. Se identifica el mejor candidato por `val_recall`.
+2. Se consulta el modelo productivo actual (alias `champion`) y se compara su `val_recall`.
 3. Si el candidato supera al productivo, se le asigna el alias `champion`.
 4. Si no hay productivo previo, el primer modelo se promueve automáticamente.
 

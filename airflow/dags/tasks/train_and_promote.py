@@ -75,16 +75,19 @@ def run(**kwargs):
 
     models = {
         "LogisticRegression": LogisticRegression(
-            max_iter=1000, random_state=42, class_weight="balanced"
+            max_iter=300, random_state=42, class_weight="balanced",
+            solver="saga", tol=1e-3, n_jobs=-1,
         ),
         "XGBoost": xgb.XGBClassifier(
             n_estimators=100, max_depth=6, learning_rate=0.1,
             random_state=42, use_label_encoder=False, eval_metric="logloss",
             scale_pos_weight=(y_train == 0).sum() / max((y_train == 1).sum(), 1),
+            n_jobs=-1,
         ),
         "LightGBM": lgb.LGBMClassifier(
             n_estimators=100, max_depth=6, learning_rate=0.1,
             random_state=42, class_weight="balanced", verbose=-1,
+            n_jobs=-1,
         ),
     }
 

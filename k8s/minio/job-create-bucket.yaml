@@ -14,8 +14,8 @@ spec:
             - /bin/sh
             - -c
             - |
-              mc alias set myminio http://minio-service:9000 minioadmin minioadmin123
-              mc mb --ignore-existing myminio/mlflow-artifacts
+              mc alias set mlops_models http://minio-service:9000 minioadmin minioadmin123
+              mc mb --ignore-existing mlops_models/mlflow-artifacts
               echo "Bucket mlflow-artifacts creado."
           resources:
             requests:
