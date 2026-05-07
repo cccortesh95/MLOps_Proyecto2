@@ -87,6 +87,9 @@ Arquitectura integral de MLOps sobre Kubernetes que cubre el ciclo completo de v
 - **Streamlit**: interfaz gráfica que consume la API de inferencia
 - **Locust**: pruebas de carga sobre la API
 - **Prometheus + Grafana**: recolección y visualización de métricas
+<p align="center">
+  <img src="images/estructura.png" alt="Arquitectura MLOps Proyecto 2" width="1200"/>
+</p>
 
 ---
 
