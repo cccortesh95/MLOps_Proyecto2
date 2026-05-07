@@ -5,6 +5,7 @@ import logging
 from datetime import datetime
 
 import pandas as pd
+from airflow.exceptions import AirflowSkipException
 from sqlalchemy import text
 
 from tasks.config import BATCH_SIZE, LOCAL_CSV_PATH, get_raw_engine
@@ -41,8 +42,8 @@ def run(**kwargs):
             ).scalar()
 
     if loaded_count >= total_rows:
-        logger.info("Todos los registros ya fueron cargados.")
-        return
+        logger.info("Todos los registros ya fueron cargados. Saltando ejecución.")
+        raise AirflowSkipException("No hay datos nuevos para cargar.")
 
     start_idx = loaded_count
     end_idx = min(start_idx + BATCH_SIZE, total_rows)

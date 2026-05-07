@@ -12,7 +12,7 @@ import os
 import sys
 from datetime import datetime, timedelta
 
-from airflow import DAG
+from airflow import DAG, Dataset
 from airflow.operators.python import PythonOperator
 
 # Airflow 3 no siempre incluye /opt/airflow/dags en PYTHONPATH.
@@ -22,6 +22,10 @@ if DAGS_DIR not in sys.path:
     sys.path.append(DAGS_DIR)
 
 from tasks import validate_source, load_raw_batch, validate_quality
+
+# Dataset lógico que representa la tabla raw en Postgres.
+# El training_pipeline se disparará automáticamente cuando esta tarea produzca datos.
+DIABETES_RAW_DATASET = Dataset("postgres://mlops/raw/diabetes_raw")
 
 default_args = {
     "owner": "mlops",
@@ -44,6 +48,10 @@ with DAG(
 
     t1 = PythonOperator(task_id="validate_source", python_callable=validate_source.run)
     t2 = PythonOperator(task_id="load_raw_batch", python_callable=load_raw_batch.run)
-    t3 = PythonOperator(task_id="validate_quality", python_callable=validate_quality.run)
+    t3 = PythonOperator(
+        task_id="validate_quality",
+        python_callable=validate_quality.run,
+        outlets=[DIABETES_RAW_DATASET],
+    )
 
     t1 >> t2 >> t3

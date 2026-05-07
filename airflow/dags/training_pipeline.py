@@ -13,7 +13,7 @@ import os
 import sys
 from datetime import datetime, timedelta
 
-from airflow import DAG
+from airflow import DAG, Dataset
 from airflow.operators.python import PythonOperator
 
 # Airflow 3 no siempre incluye /opt/airflow/dags en PYTHONPATH.
@@ -23,6 +23,10 @@ if DAGS_DIR not in sys.path:
     sys.path.append(DAGS_DIR)
 
 from tasks import preprocess_data, store_clean_data, train_and_promote
+
+# Mismo Dataset definido en ingestion_pipeline.
+# El DAG se dispara cuando ingestion produce datos nuevos en esta tabla.
+DIABETES_RAW_DATASET = Dataset("postgres://mlops/raw/diabetes_raw")
 
 
 def _preprocess_and_store(**kwargs):
@@ -42,8 +46,8 @@ with DAG(
     dag_id="training_pipeline",
     default_args=default_args,
     description="Procesamiento de datos nuevos y reentrenamiento de modelos",
-    start_date=datetime(2025, 1, 1, 0, 0, 10),
-    schedule=timedelta(minutes=5),
+    start_date=datetime(2025, 1, 1),
+    schedule=[DIABETES_RAW_DATASET],
     catchup=False,
     tags=["mlops", "diabetes", "training"],
     max_active_runs=1,

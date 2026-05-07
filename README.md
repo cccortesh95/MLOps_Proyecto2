@@ -19,6 +19,7 @@
 - [Capa de inferencia (API, Streamlit y Locust)](#capa-de-inferencia-api-streamlit-y-locust)
 - [Actualización de DAGs](#actualización-de-dags)
 - [Implementación de los DAGs](#implementación-de-los-dags)
+  - [Orquestación con Datasets](#orquestación-con-datasets)
 - [Troubleshooting](#troubleshooting)
 - [Limpieza](#limpieza)
 - [Colaboradores](#-colaboradores)
@@ -747,23 +748,49 @@ Abrir: http://localhost:8080
 
 ## Implementación de los DAGs
 
-El proyecto usa dos DAGs independientes que simulan un escenario real de producción donde los datos llegan de forma continua y el modelo se reentrena periódicamente con datos acumulados.
+El proyecto usa dos DAGs coordinados mediante la funcionalidad de **Datasets** (data-aware scheduling) de Airflow 2.4+. Esto garantiza que el entrenamiento solo se ejecute cuando realmente hay datos nuevos disponibles, eliminando ejecuciones innecesarias y dependencias basadas en tiempo.
 
 ### Arquitectura de los DAGs
 
 ```
-ingestion_pipeline (cada 5 min)          training_pipeline (cada 5 min + 10s)
+ingestion_pipeline (cada 5 min)          training_pipeline (disparado por Dataset)
 ┌──────────────────────┐                 ┌──────────────────────────┐
 │ validate_source      │                 │ preprocess_and_store     │
 │        ↓             │                 │ (preprocess + store en   │
-│ load_raw_batch       │  ──status──→    │  un solo operador)       │
-│        ↓             │   column        │        ↓                 │
-│ validate_quality     │                 │ train_and_promote        │
+│ load_raw_batch       │                 │  un solo operador)       │
+│        ↓             │  ──Dataset──→   │        ↓                 │
+│ validate_quality     │   (outlet)      │ train_and_promote        │
+│   [outlet: Dataset]  │                 │                          │
 └──────────────────────┘                 └──────────────────────────┘
      raw_data_db                          clean_data_db    MLflow
 ```
 
-Los DAGs no se comunican entre sí directamente. La coordinación se hace a través de la columna `status` en la tabla `raw.diabetes_raw`:
+### Orquestación con Datasets
+
+En lugar de coordinar los DAGs con cron o sensores, se usa un **Dataset** lógico que representa la tabla de datos crudos en PostgreSQL:
+
+```python
+from airflow import Dataset
+
+DIABETES_RAW_DATASET = Dataset("postgres://mlops/raw/diabetes_raw")
+```
+
+**¿Por qué Datasets en lugar de scheduling por tiempo?**
+
+- **Sin ejecuciones vacías**: con el enfoque anterior (`timedelta(minutes=5)` + 10s de desfase), el training pipeline se ejecutaba cada 5 minutos sin importar si había datos nuevos. Con Datasets, solo se dispara cuando la ingesta realmente insertó registros.
+- **Sin sensores ni polling**: no se necesita un `ExternalTaskSensor` ni un `SqlSensor` que consuma slots del scheduler esperando datos.
+- **Acoplamiento semántico**: la dependencia queda expresada en términos del dato producido (`raw.diabetes_raw`), no de un horario arbitrario. Si la ingesta tarda más de lo esperado, el training simplemente espera al evento.
+- **Protección contra ejecuciones innecesarias**: cuando `load_raw_batch` detecta que todos los registros ya fueron cargados, lanza `AirflowSkipException`. Esto propaga el skip a `validate_quality` (la tarea con el outlet), por lo que el Dataset no se marca como actualizado y el training no se dispara.
+
+**Flujo de eventos:**
+
+1. `ingestion_pipeline` se ejecuta cada 5 minutos (cron `*/5 * * * *`)
+2. Si hay datos nuevos, `load_raw_batch` los inserta en `raw.diabetes_raw`
+3. `validate_quality` valida el batch y, al completarse exitosamente con `outlets=[DIABETES_RAW_DATASET]`, Airflow marca el Dataset como actualizado
+4. `training_pipeline` (con `schedule=[DIABETES_RAW_DATASET]`) se dispara automáticamente
+5. Si no hay datos nuevos, `load_raw_batch` lanza `AirflowSkipException` → `validate_quality` se salta → el Dataset no se actualiza → training no se ejecuta
+
+La coordinación adicional entre DAGs se mantiene a través de la columna `status` en la tabla `raw.diabetes_raw`:
 - `loaded` → dato nuevo, pendiente de procesar
 - `processed` → dato ya procesado y almacenado en clean
 
@@ -800,7 +827,7 @@ La tabla `raw.diabetes_raw` se crea automáticamente en la primera ejecución co
 
 ### DAG 2: `training_pipeline`
 
-Procesa los datos nuevos y reentrena los modelos. Se ejecuta cada 5 minutos con 10 segundos de desfase respecto al ingestion, para que los datos ya estén disponibles.
+Procesa los datos nuevos y reentrena los modelos. Se dispara automáticamente cuando el Dataset `postgres://mlops/raw/diabetes_raw` se actualiza (es decir, cuando la ingesta completa exitosamente un nuevo batch).
 
 | Tarea | Descripción |
 |-------|-------------|
