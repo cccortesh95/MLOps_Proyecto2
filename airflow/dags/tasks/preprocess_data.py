@@ -1,10 +1,15 @@
-"""Task: Preprocesamiento y transformación de datos nuevos."""
+"""Task: Preprocesamiento y transformación de datos nuevos.
+
+Aplica limpieza general (drop columns, nulos, binarización del target) pero
+NO codifica las variables categóricas. La codificación la hace el pipeline de
+sklearn en la etapa de entrenamiento, para que el modelo registrado en MLflow
+incluya las transformaciones y la API pueda recibir datos con categorías en texto.
+"""
 
 import logging
 
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import LabelEncoder
 
 from tasks.config import CLEAN_PARQUET_PATH, DROP_COLS, TARGET_COL, get_raw_engine
 
@@ -21,7 +26,6 @@ def run(**kwargs):
 
     if df.empty:
         logger.info("No hay datos nuevos para procesar.")
-        # Crear archivo vacío para que las tareas siguientes no fallen
         pd.DataFrame().to_parquet(CLEAN_PARQUET_PATH, index=False)
         return
 
@@ -41,7 +45,7 @@ def run(**kwargs):
     for col in df.select_dtypes(include=["number"]).columns:
         df[col] = df[col].fillna(df[col].median())
 
-    # Categóricas: rellenar con moda
+    # Categóricas: rellenar con moda (NO codificar, eso lo hace el pipeline)
     for col in df.select_dtypes(include=["object"]).columns:
         if col != TARGET_COL:
             mode_val = df[col].mode()
@@ -51,12 +55,6 @@ def run(**kwargs):
     # Binarizar target: readmitted '<30' -> 1, resto -> 0
     if TARGET_COL in df.columns:
         df[TARGET_COL] = (df[TARGET_COL] == "<30").astype(int)
-
-    # Codificación de variables categóricas
-    for col in df.select_dtypes(include=["object"]).columns:
-        le = LabelEncoder()
-        df[col] = df[col].astype(str)
-        df[col] = le.fit_transform(df[col])
 
     # Asignar split: 70% train, 15% validation, 15% test
     rng = np.random.default_rng(seed=42)

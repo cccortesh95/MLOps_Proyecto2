@@ -15,16 +15,20 @@ _MODEL_NS = ConfigDict(protected_namespaces=())
 
 
 class PredictionRequest(BaseModel):
-    """Una fila de características alineada con el entrenamiento (sin readmitted ni split)."""
+    """Una fila de características alineada con el modelo (sin readmitted ni split).
+    
+    Acepta valores numéricos y strings (para columnas categóricas que el pipeline
+    de sklearn transforma internamente con OrdinalEncoder).
+    """
 
     features: Dict[str, Any] = Field(
         ...,
-        description="Diccionario nombre_columna -> valor numérico (como en clean.diabetes_clean)",
+        description="Diccionario nombre_columna -> valor (numérico o string para categóricas)",
     )
 
     @field_validator("features", mode="before")
     @classmethod
-    def coerce_numeric_values(cls, v: Any) -> Dict[str, Any]:
+    def coerce_values(cls, v: Any) -> Dict[str, Any]:
         if not isinstance(v, dict):
             raise TypeError("features debe ser un objeto JSON (diccionario).")
         out: Dict[str, Any] = {}
@@ -32,12 +36,14 @@ class PredictionRequest(BaseModel):
             if isinstance(val, bool):
                 raise ValueError(f"La característica '{key}' no puede ser booleana.")
             if isinstance(val, (int, float)):
-                out[str(key)] = float(val)
+                out[str(key)] = val
+            elif isinstance(val, str):
+                out[str(key)] = val
             elif val is None:
                 raise ValueError(f"La característica '{key}' no puede ser null.")
             else:
                 raise ValueError(
-                    f"La característica '{key}' debe ser numérica; se recibió {type(val).__name__}."
+                    f"La característica '{key}' debe ser numérica o string; se recibió {type(val).__name__}."
                 )
         return out
 
@@ -46,6 +52,7 @@ class PredictionResponse(BaseModel):
     model_config = _MODEL_NS
 
     prediction: int = Field(..., description="Clase predicha (0 o 1).")
+    prediction_label: str = Field(..., description="Etiqueta legible: 'Sí' (readmitido <30 días) o 'No'.")
     probability: Optional[float] = Field(
         None, description="Probabilidad estimada de clase positiva (1), si el modelo la expone."
     )

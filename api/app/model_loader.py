@@ -133,9 +133,10 @@ class ModelService:
                 )
                 self._load_unlocked()
 
-    def predict_row(self, features: dict[str, float]) -> Tuple[int, Optional[float]]:
+    def predict_row(self, features: dict[str, Any]) -> Tuple[int, Optional[float]]:
         """
         Ejecuta inferencia para un único registro.
+        Acepta valores numéricos y strings (el pipeline se encarga de transformar).
         Devuelve (clase, probabilidad_clase_1 o None).
         """
         with self._lock:

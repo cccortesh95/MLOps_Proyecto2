@@ -41,8 +41,8 @@ def _maybe_reload_model() -> None:
 
 
 def _validate_features(
-    payload: Dict[str, float], expected: List[str]
-) -> Dict[str, float]:
+    payload: Dict[str, Any], expected: List[str]
+) -> Dict[str, Any]:
     exp: Set[str] = set(expected)
     got: Set[str] = set(payload.keys())
     missing = sorted(exp - got)
@@ -54,7 +54,7 @@ def _validate_features(
             extra_features=extra or None,
         )
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail.model_dump())
-    return {k: float(payload[k]) for k in expected}
+    return {k: payload[k] for k in expected}
 
 
 @asynccontextmanager
@@ -197,6 +197,7 @@ def predict(body: PredictionRequest) -> PredictionResponse:
 
     return PredictionResponse(
         prediction=pred,
+        prediction_label="Sí" if pred == 1 else "No",
         probability=proba,
         model_name=model_service.model_name,
         model_version=model_service.version or "unknown",
