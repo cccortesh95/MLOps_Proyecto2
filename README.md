@@ -1,38 +1,75 @@
-# 🏥 MLOps Proyecto 2 - Diabetes 130-US Hospitals
+
+# 🏥 MLOps Proyecto 2 — Diabetes 130-US Hospitals
 
 ## 📑 Tabla de contenido
 
-- [Descripción general](#descripción-general)
-- [Arquitectura de la solución](#arquitectura-de-la-solución)
-- [Servicios desplegados](#servicios-desplegados)
-- [Estructura del proyecto](#estructura-del-proyecto)
-- [Imágenes en DockerHub](#imágenes-en-dockerhub)
-- [Variables de entorno](#variables-de-entorno)
-- [Configuración de manifiestos y recursos](#configuración-de-manifiestos-y-recursos)
-  - [Resumen de recursos](#resumen-de-recursos-cpu--memoria)
-  - [Almacenamiento persistente](#almacenamiento-persistente)
-  - [Health checks](#health-checks)
-  - [Consideraciones por servicio](#consideraciones-por-servicio)
-- [Requisitos previos](#requisitos-previos)
-- [Despliegue paso a paso](#despliegue-paso-a-paso)
-  - [1. Crear el clúster](#1-crear-el-clúster)
-  - [2. Build y push de imágenes](#2-build-y-push-de-imágenes)
-  - [3. Infraestructura base](#3-infraestructura-base-namespace--postgres--minio)
-  - [4. MLflow](#4-mlflow)
-  - [5. Airflow](#5-airflow)
-  - [6. Capa de inferencia](#6-capa-de-inferencia-api--streamlit--locust)
-  - [7. Observabilidad](#7-observabilidad-prometheus--grafana)
-  - [8. Verificación y port-forwards](#8-verificación-y-port-forwards)
-- [Detalles por servicio](#detalles-por-servicio)
-  - [PostgreSQL](#postgresql)
-  - [MinIO](#minio)
-  - [MLflow](#mlflow)
-  - [Airflow](#airflow)
-  - [Capa de inferencia (API, Streamlit y Locust)](#capa-de-inferencia-api-streamlit-y-locust)
-- [Implementación de los DAGs](#implementación-de-los-dags)
-- [Troubleshooting](#troubleshooting)
-- [Limpieza](#limpieza)
-- [Colaboradores](#-colaboradores)
+1. [Descripción general](#descripción-general)
+2. [Arquitectura de la solución](#arquitectura-de-la-solución)
+3. [Servicios desplegados](#servicios-desplegados)
+4. [Estructura del proyecto](#estructura-del-proyecto)
+
+---
+
+## ⚙️ Configuración de la plataforma
+
+5. [Imágenes en DockerHub](#imágenes-en-dockerhub)
+6. [Variables de entorno](#variables-de-entorno)
+   - [PostgreSQL](#postgresql-1)
+   - [MinIO](#minio-1)
+   - [MLflow](#mlflow-1)
+   - [Airflow](#airflow-1)
+   - [API, Streamlit y Locust](#api-streamlit-y-locust)
+
+7. [Configuración de manifiestos y recursos](#configuración-de-manifiestos-y-recursos)
+   - [Resumen de recursos (CPU / memoria)](#resumen-de-recursos-cpu--memoria)
+   - [Almacenamiento persistente](#almacenamiento-persistente)
+   - [Health checks](#health-checks)
+   - [Consideraciones por servicio](#consideraciones-por-servicio)
+
+---
+
+## 🚀 Despliegue
+
+8. [Requisitos previos](#requisitos-previos)
+
+9. [Despliegue paso a paso](#despliegue-paso-a-paso)
+   - [1. Crear el clúster](#1-crear-el-clúster)
+   - [2. Build y push de imágenes](#2-build-y-push-de-imágenes)
+   - [3. Infraestructura base (Namespace + PostgreSQL + MinIO)](#3-infraestructura-base-namespace--postgres--minio)
+   - [4. MLflow](#4-mlflow)
+   - [5. Airflow](#5-airflow)
+   - [6. Capa de inferencia (API + Streamlit + Locust)](#6-capa-de-inferencia-api--streamlit--locust)
+   - [7. Observabilidad (Prometheus + Grafana)](#7-observabilidad-prometheus--grafana)
+   - [8. Verificación y port-forwards](#8-verificación-y-port-forwards)
+
+---
+
+## 🧩 Componentes del sistema
+
+10. [Detalles por servicio](#detalles-por-servicio)
+    - [PostgreSQL](#postgresql)
+    - [MinIO](#minio)
+    - [MLflow](#mlflow)
+    - [Airflow](#airflow)
+    - [Capa de inferencia (API, Streamlit y Locust)](#capa-de-inferencia-api-streamlit-y-locust)
+
+11. [Implementación de los DAGs](#implementación-de-los-dags)
+    - [Arquitectura](#arquitectura)
+    - [Orquestación con Datasets](#orquestación-con-datasets)
+    - [Estructura de archivos](#estructura-de-archivos)
+    - [DAG 1: ingestion_pipeline](#dag-1-ingestion_pipeline)
+    - [DAG 2: training_pipeline](#dag-2-training_pipeline)
+    - [Modelos entrenados](#modelos-entrenados)
+    - [Métrica principal: Recall](#métrica-principal-recall)
+    - [Promoción del modelo](#promoción-del-modelo)
+
+---
+
+## 🛠️ Operación y soporte
+
+12. [Troubleshooting](#troubleshooting)
+13. [Limpieza](#limpieza)
+14. [Colaboradores](#-colaboradores)
 
 ---
 
