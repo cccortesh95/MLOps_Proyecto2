@@ -584,6 +584,13 @@ La separación de MLflow en su propia instancia permite que las cargas del DAG n
   <img src="images/BBDD_clean.png" alt="Arquitectura MLOps Proyecto 2" width="1200"/>
 </p>
 
+
+| `postgres` | Logs de consulta |
+
+<p align="center">
+  <img src="images/api_inferencia.png" alt="Arquitectura MLOps Proyecto 2" width="1200"/>
+</p>
+
 **Manifiestos**
 
 `k8s/postgres/`: `secret.yaml`, `configmap.yaml`, `configmap-init.yaml` (crea las 3 BDs, esquemas y la tabla `inference_logs`), `pvc.yaml` (5Gi), `statefulset.yaml`, `service.yaml`.
@@ -833,6 +840,12 @@ Ejecuta cada 5 minutos. Carga lotes de máximo 15,000 registros del CSV fuente a
 
 La tabla `raw.diabetes_raw` se crea en la primera ejecución con los nombres exactos del CSV.
 
+<p align="center">
+  <img src="images/Dag_ingesta.png" alt="Arquitectura MLOps Proyecto 2" width="1200"/>
+</p>
+
+
+
 ### DAG 2: `training_pipeline`
 
 Disparado por el Dataset `postgres://mlops/raw/diabetes_raw`.
@@ -841,6 +854,16 @@ Disparado por el Dataset `postgres://mlops/raw/diabetes_raw`.
 |-------|-------------|
 | `preprocess_and_store` | Ejecuta en una sola tarea la lógica de `preprocess_data.py` (lee `loaded`, limpieza, encoding, `split`) y `store_clean_data.py` (append a `clean.diabetes_clean`, marca raw como `processed`). Así el parquet intermedio en `/tmp` no se pierde entre reintentos. |
 | `train_and_promote` | Lee todos los datos de clean, separa por `split`, entrena 3 modelos, registra cada uno en MLflow y promueve el mejor con alias `champion` usando **recall** como métrica de selección |
+
+<p align="center">
+  <img src="images/registros_TVT" alt="Arquitectura MLOps Proyecto 2" width="1200"/>
+</p>
+
+<p align="center">
+  <img src="images/Dag_entrenamiento.png" alt="Arquitectura MLOps Proyecto 2" width="1200"/>
+</p>
+
+
 
 ### Modelos entrenados
 
