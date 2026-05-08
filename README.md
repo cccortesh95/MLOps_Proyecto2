@@ -664,9 +664,26 @@ Airflow usa el chart oficial de Apache con la imagen custom de DockerHub. Toda l
    ```
 4. Volver a ejecutar el `helm upgrade` del [paso 5](#5-airflow) (o `cd airflow && ./deploy.sh`). Los pods se recrean con la nueva imagen.
 
+DAG datos crudos
+
+<p align="center">
+  <img src="images/Dag_ingesta.png" alt="Arquitectura MLOps Proyecto 2" width="1200"/>
+</p>
+
+DAG Entrenamiento
+
+<p align="center">
+  <img src="images/Dag_entrenamiento.png" alt="Arquitectura MLOps Proyecto 2" width="1200"/>
+</p>
+
+
+
+
 ### Capa de inferencia (API, Streamlit y Locust)
 
 **FastAPI** sirve inferencia y métricas, **Streamlit** ofrece una UI que solo llama a la API, y **Locust** ejerce carga sobre los mismos endpoints.
+
+
 
 #### Requisitos previos de inferencia
 
@@ -707,6 +724,11 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 # Docs: http://localhost:8000/docs
 ```
 
+<p align="center">
+  <img src="images/api_inferencia.png" alt="Arquitectura MLOps Proyecto 2" width="1200"/>
+</p>
+
+
 #### Streamlit
 
 - Código: `streamlit/app/app.py`.
@@ -718,6 +740,12 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 cd streamlit
 streamlit run app/app.py --server.port 8501
 ```
+<p align="center">
+  <img src="images/streamlit_prediccion.png" alt="Arquitectura MLOps Proyecto 2" width="1200"/>
+</p>
+
+
+
 
 #### Locust
 
