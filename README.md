@@ -856,7 +856,7 @@ Disparado por el Dataset `postgres://mlops/raw/diabetes_raw`.
 | `train_and_promote` | Lee todos los datos de clean, separa por `split`, entrena 3 modelos, registra cada uno en MLflow y promueve el mejor con alias `champion` usando **recall** como métrica de selección |
 
 <p align="center">
-  <img src="images/registros_TVT" alt="Arquitectura MLOps Proyecto 2" width="1200"/>
+  <img src="images/registros_TVT.png" alt="Arquitectura MLOps Proyecto 2" width="1200"/>
 </p>
 
 <p align="center">
