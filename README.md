@@ -588,7 +588,7 @@ La separación de MLflow en su propia instancia permite que las cargas del DAG n
 | `postgres` | Logs de consulta |
 
 <p align="center">
-  <img src="images/api_inferencia.png" alt="Arquitectura MLOps Proyecto 2" width="1200"/>
+  <img src="images/BBDD_logs_inferencia.png" alt="Arquitectura MLOps Proyecto 2" width="1200"/>
 </p>
 
 **Manifiestos**
