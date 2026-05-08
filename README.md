@@ -456,12 +456,20 @@ Esperar a que los pods estén `Running` antes de continuar:
 kubectl get pods -n mlops -w
 ```
 
+<p align="center">
+  <img src="images/ejecucion_kubernet.png" alt="Arquitectura MLOps Proyecto 2" width="1200"/>
+</p>
+
 ### 4. MLflow
 
 ```bash
 kubectl apply -f k8s/mlflow/
 kubectl get pods -n mlops -l app=mlflow -w
 ```
+<p align="center">
+  <img src="images/Entrenamiento_mlflow.png" alt="Arquitectura MLOps Proyecto 2" width="1200"/>
+</p>
+
 
 ### 5. Airflow
 
@@ -479,6 +487,10 @@ helm upgrade --install airflow apache-airflow/airflow \
   -f airflow/values/values-local.yaml \
   --timeout 20m
 ```
+<p align="center">
+  <img src="images/DAGs_entrenamiento_extraccion.png" alt="Arquitectura MLOps Proyecto 2" width="1200"/>
+</p>
+
 
 > **No usar `--wait`**: Helm se bloquea esperando que todos los pods estén Ready, y si la migración tarda más de lo esperado el release no se registra, dejando recursos huérfanos. Sin `--wait`, Helm registra el release inmediatamente y puedes monitorear los pods aparte.
 
@@ -501,6 +513,9 @@ kubectl apply -f k8s/api/
 kubectl apply -f k8s/streamlit/
 kubectl apply -f k8s/locust/
 ```
+<p align="center">
+  <img src="images/streamlit_api_operativa.png" alt="Arquitectura MLOps Proyecto 2" width="1200"/>
+</p>
 
 > La API arranca en estado `degraded` hasta que el DAG `training_pipeline` registre un modelo con alias `champion` en MLflow. Ver [Capa de inferencia](#capa-de-inferencia-api-streamlit-y-locust).
 
@@ -533,6 +548,10 @@ Todos los servicios deben estar `Running`. Para acceder a las UIs:
 
 > Si el puerto local ya está ocupado (ej. un PostgreSQL del sistema en `5432`), cambia el primer número del port-forward (ej. `5433:5432`).
 
+<p align="center">
+  <img src="images/ejecucion_kubernet.png" alt="Arquitectura MLOps Proyecto 2" width="1200"/>
+</p>
+
 ---
 
 ## Detalles por servicio
@@ -552,6 +571,18 @@ Se despliegan dos instancias en el namespace `mlops`. Airflow cuenta con su prop
 | `airflow-postgresql` | `postgres` | `public` | — | Metadata de Airflow (viene con Helm) |
 
 La separación de MLflow en su propia instancia permite que las cargas del DAG no afecten el tracking server.
+
+| `postgres` | Datos crudos sin transformar |
+
+<p align="center">
+  <img src="images/BBDD_datos_crudos.png" alt="Arquitectura MLOps Proyecto 2" width="1200"/>
+</p>
+
+| `postgres` | Datos procesados para entrenamiento |
+
+<p align="center">
+  <img src="images/BBDD_clean.png" alt="Arquitectura MLOps Proyecto 2" width="1200"/>
+</p>
 
 **Manifiestos**
 
@@ -591,6 +622,10 @@ kubectl logs job/minio-create-bucket -n mlops
 
 **Consola web**: usuario `minioadmin`, contraseña `minioadmin123`.
 
+<p align="center">
+  <img src="images/modelos_en_minio.png" alt="Arquitectura MLOps Proyecto 2" width="1200"/>
+</p>
+
 ### MLflow
 
 Tracking server y model registry. Usa `mlflow-postgres` como backend y MinIO como artifact store.
@@ -598,6 +633,10 @@ Tracking server y model registry. Usa `mlflow-postgres` como backend y MinIO com
 Se usa una imagen custom (`cccortesh/mlops-mlflow`) porque la imagen oficial no incluye `psycopg2` ni `boto3`.
 
 **Manifiestos** (`k8s/mlflow/`): `secret.yaml` (credenciales S3 y URI a PostgreSQL), `configmap.yaml` (tracking URI, endpoint S3, artifact root), `deployment.yaml`, `service.yaml` (puerto `5000`).
+
+<p align="center">
+  <img src="images/Entrenamiento_mlflow.png" alt="Arquitectura MLOps Proyecto 2" width="1200"/>
+</p>
 
 ### Airflow
 
@@ -608,6 +647,10 @@ Airflow usa el chart oficial de Apache con la imagen custom de DockerHub. Toda l
 - `createUserJob.enabled: true` + `defaultUser`: crea `admin/admin` automáticamente.
 - PostgreSQL interno habilitado (metadata de Airflow).
 - Variables de entorno globales con credenciales MLflow, MinIO y PostgreSQL del proyecto.
+
+<p align="center">
+  <img src="images/DAGs_entrenamiento_extraccion.png" alt="Arquitectura MLOps Proyecto 2" width="1200"/>
+</p>
 
 **Actualización de DAGs**
 
