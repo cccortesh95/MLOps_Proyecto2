@@ -815,7 +815,7 @@ Las pruebas de carga se ejecutaron con **Locust** desplegado dentro del clúster
 **Total de requests por segundo y tasa de fallos:**
  
 <p align="center">
-  <img src="images/locust_charts.png" alt="Locust Charts - RPS y Failures" width="1000"/>
+  <img src="images/locust1.png" alt="Locust Charts - RPS y Failures" width="1000"/>
 </p>
 > La línea verde (RPS) se estabilizó entre 50-70 RPS con 50 usuarios concurrentes. La línea roja de fallos se mantuvo en **0** durante toda la prueba.
  
@@ -824,7 +824,7 @@ Las pruebas de carga se ejecutaron con **Locust** desplegado dentro del clúster
 **Estadísticas detalladas por endpoint:**
  
 <p align="center">
-  <img src="images/locust_statistics.png" alt="Locust Statistics" width="1000"/>
+  <img src="images/locust2.png" alt="Locust Statistics" width="1000"/>
 </p>
 ---
  
