@@ -822,7 +822,10 @@ Las pruebas de carga se ejecutaron con **Locust** desplegado dentro del clúster
 ---
  
 **Estadísticas detalladas por endpoint:**
- 
+<p align="center">
+  <img src="images/locust3.png" alt="Locust Statistics" width="1000"/>
+</p>
+
 <p align="center">
   <img src="images/locust2.png" alt="Locust Statistics" width="1000"/>
 </p>
