@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter, Gauge, Histogram
 
 # Histograma de latencia del endpoint de inferencia (segundos; Prometheus expone _bucket/_sum/_count)
 PREDICT_LATENCY_SECONDS = Histogram(
@@ -28,4 +28,9 @@ PREDICT_ERRORS_TOTAL = Counter(
     "mlops_predict_errors_total",
     "Errores en /predict por tipo",
     labelnames=("error_type",),
+)
+
+MODEL_LOADED = Gauge(
+    "mlops_model_loaded",
+    "Estado de carga del modelo productivo: 1 cargado, 0 no disponible",
 )

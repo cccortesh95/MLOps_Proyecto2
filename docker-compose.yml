@@ -3,6 +3,48 @@
 # La entrega final debe desplegarse en Kubernetes.
 # =============================================================================
 
-# TODO: Implementar docker-compose para desarrollo local
-version: "3.8"
-services: {}
+services:
+  api:
+    build:
+      context: ./api
+    ports:
+      - "8000:8000"
+    networks:
+      default:
+        aliases:
+          - api-service
+
+  locust:
+    build:
+      context: ./locust
+    environment:
+      LOCUST_HOST: http://api-service:8000
+    ports:
+      - "8089:8089"
+    depends_on:
+      - api
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - api
+    networks:
+      default:
+        aliases:
+          - prometheus-service
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/provisioning/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./grafana/provisioning/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./grafana/provisioning/alerting:/etc/grafana/provisioning/alerting:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
