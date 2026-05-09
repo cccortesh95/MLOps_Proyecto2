@@ -767,6 +767,99 @@ docker run --rm -e LOCUST_HOST=http://api-service:8000 cccortesh/mlops-locust:la
   locust -f locustfile.py --host http://api-service:8000 --headless -u 10 -r 2 -t 60s
 ```
 
+### Configuración de la prueba
+ 
+Las pruebas de carga se ejecutaron con **Locust** desplegado dentro del clúster Kubernetes, apuntando directamente al servicio `api-service:8000`.
+ 
+| Parámetro | Valor |
+|-----------|-------|
+| Usuarios concurrentes (peak) | 50 |
+| Ramp up | 5 usuarios/segundo |
+| Host | `http://api-service:8000` |
+| Distribución de tráfico | 60% `/predict` · 20% `/health` · 20% `/model-info` |
+| Equivalencia por hora | ~235,800 requests/hora |
+ 
+> **Cálculo:** 65.5 RPS × 3,600 segundos = 235,800 requests/hora
+ 
+---
+ 
+### Resultados por endpoint
+ 
+| Método | Endpoint | # Requests | # Fallos | Mediana (ms) | p95 (ms) | p99 (ms) | Promedio (ms) | Min (ms) | Max (ms) | RPS |
+|--------|----------|-----------|---------|-------------|---------|---------|--------------|---------|---------|-----|
+| GET | `/health` | 5,667 | 0 | 1 | 15 | 47 | 4.11 | 1 | 204 | 13.7 |
+| GET | `/model-info` | 5,606 | 0 | 1 | 15 | 48 | 4.24 | 1 | 165 | 13.9 |
+| POST | `/predict` | 16,745 | 0 | 13 | 63 | 110 | 20.17 | 8 | 291 | 37.9 |
+| — | **Aggregated** | **28,018** | **0** | **9** | **49** | **96** | **13.73** | **1** | **291** | **65.5** |
+ 
+---
+ 
+### Métricas clave
+ 
+| Métrica | Valor |
+|---------|-------|
+| ✅ Tasa de éxito | **100%** (0 fallos) |
+| ⚡ Throughput total | **65.5 RPS** |
+| ⏱️ Latencia promedio | **13.73 ms** |
+| 📊 Percentil 95 | **49 ms** |
+| 📊 Percentil 99 | **96 ms** |
+| 🔮 Latencia `/predict` promedio | **20.17 ms** |
+| 🔮 Latencia `/predict` p95 | **63 ms** |
+| 📈 Requests totales procesados | **28,018** |
+| 🕐 Equivalente por hora | **~235,800 req/hora** |
+ 
+---
+ 
+### Gráficas de la prueba
+ 
+**Total de requests por segundo y tasa de fallos:**
+ 
+<p align="center">
+  <img src="images/locust_charts.png" alt="Locust Charts - RPS y Failures" width="1000"/>
+</p>
+> La línea verde (RPS) se estabilizó entre 50-70 RPS con 50 usuarios concurrentes. La línea roja de fallos se mantuvo en **0** durante toda la prueba.
+ 
+---
+ 
+**Estadísticas detalladas por endpoint:**
+ 
+<p align="center">
+  <img src="images/locust_statistics.png" alt="Locust Statistics" width="1000"/>
+</p>
+---
+ 
+### Análisis de resultados
+ 
+La API demostró un comportamiento estable y eficiente bajo carga sostenida de 50 usuarios concurrentes:
+ 
+- **Cero fallos** en 28,018 requests totales — la API es robusta bajo esta carga.
+- **Latencia muy baja** — el promedio de 13.73 ms indica que el modelo responde en tiempo real.
+- **`/predict` es el endpoint más exigente** con 20.17 ms promedio y pico de 291 ms, lo cual es aceptable para un modelo de ML.
+- **Sin punto de degradación** visible — la API mantuvo rendimiento estable durante toda la prueba sin incremento progresivo de latencia.
+- **Capacidad estimada:** a 37.9 RPS para `/predict`, la API puede atender ~136,440 predicciones/hora con esta infraestructura.
+---
+ 
+### Acceso a la UI de Locust
+ 
+```bash
+kubectl port-forward svc/locust-service 8089:8089 -n mlops
+```
+ 
+Abrir: **http://localhost:8089**
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ---
 
 ## Implementación de los DAGs
