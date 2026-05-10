@@ -33,3 +33,4 @@ k8s/**/secret-local.yaml
 # Logs
 *.log
 logs/
+kind-config.yaml
