@@ -1,0 +1,253 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: api-observability
+    folder: MLOps
+    interval: 1m
+    rules:
+      - uid: api-model-not-loaded
+        title: Modelo no cargado
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: 1 - max(mlops_model_loaded)
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: []
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - B
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 0
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              refId: C
+              type: threshold
+        noDataState: NoData
+        execErrState: Error
+        for: 1m
+        annotations:
+          summary: Modelo productivo no cargado
+          description: El modelo productivo no está cargado o MLflow/modelo no está disponible.
+        labels:
+          severity: critical
+          service: inference-api
+        isPaused: false
+
+      - uid: api-high-error-rate
+        title: Error rate alto
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: sum(rate(http_requests_total{handler!="/metrics",status=~"5.."}[1m])) / clamp_min(sum(rate(http_requests_total{handler!="/metrics"}[1m])), 1e-9)
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: []
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - B
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 0.05
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              refId: C
+              type: threshold
+        noDataState: NoData
+        execErrState: Error
+        for: 1m
+        annotations:
+          summary: Error rate 5xx alto
+          description: Más del 5% de las solicitudes están fallando con errores 5xx.
+        labels:
+          severity: warning
+          service: inference-api
+        isPaused: false
+
+      - uid: api-high-p95-latency
+        title: Latencia p95 alta
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{handler!="/metrics"}[1m])))
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: []
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - B
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 1
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              refId: C
+              type: threshold
+        noDataState: NoData
+        execErrState: Error
+        for: 1m
+        annotations:
+          summary: Latencia p95 alta
+          description: La latencia p95 de la API supera 1 segundo.
+        labels:
+          severity: warning
+          service: inference-api
+        isPaused: false

@@ -36,6 +36,12 @@ spec:
             - name: dashboards-provider
               mountPath: /etc/grafana/provisioning/dashboards/dashboards.yml
               subPath: dashboards.yml
+            - name: alerting
+              mountPath: /etc/grafana/provisioning/alerting/api-alerts.yml
+              subPath: api-alerts.yml
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards/api-dashboard.json
+              subPath: api-dashboard.json
           resources:
             requests:
               cpu: "100m"
@@ -73,3 +79,15 @@ spec:
             items:
               - key: dashboards.yml
                 path: dashboards.yml
+        - name: alerting
+          configMap:
+            name: grafana-config
+            items:
+              - key: api-alerts.yml
+                path: api-alerts.yml
+        - name: dashboards
+          configMap:
+            name: grafana-config
+            items:
+              - key: api-dashboard.json
+                path: api-dashboard.json

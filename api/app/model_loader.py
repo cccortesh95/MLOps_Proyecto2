@@ -17,6 +17,8 @@ import mlflow
 import pandas as pd
 from mlflow.tracking import MlflowClient
 
+from app.metrics import MODEL_LOADED
+
 logger = logging.getLogger(__name__)
 
 MODEL_ALIAS = "champion"
@@ -38,6 +40,7 @@ class ModelService:
         self._feature_names: List[str] = []
         self._loaded_at: float = 0.0
         self._last_error: Optional[str] = None
+        MODEL_LOADED.set(0)
 
     def configure_tracking(self) -> None:
         uri = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
@@ -61,6 +64,7 @@ class ModelService:
             self._version = None
             self._run_id = None
             self._feature_names = []
+            MODEL_LOADED.set(0)
             return
 
         model_uri = f"models:/{self._model_name}@{MODEL_ALIAS}"
@@ -71,6 +75,7 @@ class ModelService:
             logger.exception("Fallo al cargar artefacto desde %s", model_uri)
             self._sklearn_model = None
             self._feature_names = []
+            MODEL_LOADED.set(0)
             raise ModelLoadError(str(exc)) from exc
 
         self._sklearn_model = sklearn_model
@@ -79,6 +84,7 @@ class ModelService:
         self._feature_names = self._infer_feature_names(sklearn_model)
         self._loaded_at = time.time()
         self._last_error = None
+        MODEL_LOADED.set(1 if self.is_ready else 0)
         logger.info(
             "Modelo cargado: %s v%s (%d características)",
             self._model_name,
@@ -123,7 +129,9 @@ class ModelService:
             try:
                 mv = client.get_model_version_by_alias(self._model_name, MODEL_ALIAS)
             except Exception:  # noqa: BLE001
+                MODEL_LOADED.set(0)
                 return
+            MODEL_LOADED.set(1 if self.is_ready else 0)
             remote_v = str(mv.version)
             if self._version != remote_v:
                 logger.info(
