@@ -52,6 +52,7 @@
     - [MLflow](#mlflow)
     - [Airflow](#airflow)
     - [Capa de inferencia (API, Streamlit y Locust)](#capa-de-inferencia-api-streamlit-y-locust)
+    - [Observabilidad (Prometheus + Grafana)](#observabilidad-prometheus--grafana)
 
 11. [Implementación de los DAGs](#implementación-de-los-dags)
     - [Arquitectura](#arquitectura)
@@ -525,6 +526,12 @@ kubectl apply -f k8s/locust/
 kubectl apply -f k8s/prometheus/
 kubectl apply -f k8s/grafana/
 ```
+<p align="center">
+  <img src="images/grafana-dashboard-1.png" alt="Dashboard principal de Grafana" width="1200"/>
+</p>
+
+
+
 
 ### 8. Verificación y port-forwards
 
@@ -850,8 +857,81 @@ kubectl port-forward svc/locust-service 8089:8089 -n mlops
  
 Abrir: **http://localhost:8089**
 
+### Observabilidad (Prometheus + Grafana)
+
+La arquitectura de observabilidad sigue el flujo:
+
+```text
+FastAPI → /metrics → Prometheus → Grafana
+```
+
+FastAPI expone métricas Prometheus en `GET /metrics`. Prometheus usa el job `fastapi` para hacer scraping sobre `api-service:8000/metrics` cada `5s`, mientras Grafana consume Prometheus como datasource (`http://prometheus-service:9090`) para construir dashboards y evaluar alertas.
+
+Credenciales de Grafana:
+
+| Usuario | Contraseña |
+|---------|------------|
+| `admin` | `admin123` |
+
+**Scraping de Prometheus**
+
+Prometheus se configura con scraping estático hacia el servicio interno de Kubernetes:
+
+```yaml
+job_name: "fastapi"
+targets: ["api-service:8000"]
+metrics_path: /metrics
+scrape_interval: 5s
+```
+
+<p align="center">
+  <img src="images/prometheus-targets.png" alt="Prometheus targets conectados a la API" width="1200"/>
+</p>
 
 
+**Dashboards de Grafana**
+
+Grafana se provisiona automáticamente con Prometheus como datasource y un dashboard de observabilidad de la API. Los paneles permiten monitorear volumen de requests, error rate, latencia p95, requests en progreso y métricas de inferencia.
+
+<p align="center">
+  <img src="images/grafana-dashboard-1.png" alt="Dashboard principal de Grafana" width="1200"/>
+</p>
+
+
+<p align="center">
+  <img src="images/grafana-dashboard-2.png" alt="Paneles de métricas en Grafana" width="1200"/>
+</p>
+
+
+**Métricas custom de la API**
+
+| Métrica | Tipo | Descripción |
+|---------|------|-------------|
+| `mlops_model_loaded` | Gauge | Estado del modelo productivo: `1` cargado, `0` no disponible |
+| `mlops_predict_requests_total` | Counter | Total de solicitudes exitosas a `/predict`, etiquetadas por `outcome` |
+| `mlops_predict_latency_seconds` | Histogram | Latencia del endpoint `/predict` en segundos |
+| `mlops_predict_errors_total` | Counter | Errores de inferencia etiquetados por `error_type` |
+
+Consultas PromQL útiles:
+
+```promql
+mlops_model_loaded
+sum(rate(mlops_predict_requests_total[1m]))
+histogram_quantile(0.95, sum by (le) (rate(mlops_predict_latency_seconds_bucket[1m])))
+sum(rate(mlops_predict_errors_total[1m]))
+```
+
+**Alertas**
+
+Grafana carga reglas de alerting desde provisioning. Las alertas configuradas cubren:
+
+- Modelo no cargado: `1 - max(mlops_model_loaded) > 0`
+- Alta latencia p95: `histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{handler!="/metrics"}[1m]))) > 1`
+- Alto error rate: errores `5xx` sobre el total de requests mayor a `5%`
+
+<p align="center">
+  <img src="images/grafana-alerts.png" alt="Alertas configuradas en Grafana" width="1200"/>
+</p>
 
 
 
